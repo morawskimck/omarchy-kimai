@@ -89,9 +89,9 @@ ships. It needs no extra packages and no privileges.
 
 ## Development
 
+From the root of a working copy of this repository:
+
 ```bash
-git clone https://github.com/morawskimck/omarchy-kimai ~/Work/omarchy-kimai
-cd ~/Work/omarchy-kimai
 scripts/check.sh      # unit tests (node), qmllint, UI + service tests, manifest validation
 scripts/ui-test.sh /tmp/kimai-ui   # UI tests only; keeps the screenshots
 scripts/service-test.sh            # Service.qml against a mock Kimai (no real server or keyring)
