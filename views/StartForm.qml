@@ -29,6 +29,8 @@ Column {
   }
 
   onVisibleChanged: if (visible) load()
+  onSvcChanged: if (visible) load()
+  Component.onCompleted: if (visible) load()
 
   // Recent entries usually arrive after the form is first shown.
   Connections {

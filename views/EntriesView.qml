@@ -42,10 +42,15 @@ Column {
     else root.date = Model.localDateString(Date.now())
   }
   onDateChanged: load()
+  onSvcChanged: load()
+  Component.onCompleted: load()
 
+  // The popup keeps this view alive while closed, so visibility alone does
+  // not tell us it was reopened; the service's refresh does.
   Connections {
     target: root.svc
     function onTimesheetsChanged() { root.load() }
+    function onRefreshing() { root.load() }
   }
 
   Item {

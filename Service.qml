@@ -34,6 +34,9 @@ Item {
 
   // Emitted after any successful start/stop/restart/update.
   signal timesheetsChanged()
+  // Emitted when a full refresh starts (popup opened, reconnect), so views
+  // with their own data (the Entries day list) reload too.
+  signal refreshing()
 
   // ---- private
   property string _token: ""
@@ -216,6 +219,7 @@ Item {
   }
 
   function refreshAll() {
+    root.refreshing()
     refresh()
     loadRecent()
     api("GET", "/config/timesheet", null, null, function(r) {

@@ -1,0 +1,278 @@
+import QtQuick
+import Quickshell
+import qs.Commons
+import "plugin/views"
+import "plugin/tests/ui"
+import "plugin/Model.js" as Model
+
+// UI test harness. scripts/ui-test.sh copies this file into a throwaway
+// Quickshell config dir next to symlinks for Omarchy's Commons/Ui and this
+// repo (as plugin/), then runs it offscreen. The real views talk to a
+// MockService; each check prints "UI PASS name" or "UI FAIL name: detail",
+// screenshots land in $KIMAI_UI_OUT, and the last line is "UI DONE <failures>".
+ShellRoot {
+  id: harness
+
+  property int failures: 0
+  property var edited: []
+  property bool editClosed: false
+  readonly property string outDir: Quickshell.env("KIMAI_UI_OUT")
+  readonly property double now: Date.now()
+
+  function check(name, ok, detail) {
+    if (ok) {
+      console.log("UI PASS " + name)
+    } else {
+      harness.failures++
+      console.log("UI FAIL " + name + (detail !== undefined ? ": " + detail : ""))
+    }
+  }
+
+  // Kimai-style timestamp in the local timezone, `minutesAgo` before now.
+  function stamp(minutesAgo) {
+    var ms = harness.now - minutesAgo * 60000
+    var d = new Date(ms)
+    var off = -d.getTimezoneOffset()
+    var sign = off >= 0 ? "+" : "-"
+    off = Math.abs(off)
+    return Model.localDateString(ms) + "T" + Model.pad2(d.getHours()) + ":" + Model.pad2(d.getMinutes()) + ":00"
+      + sign + Model.pad2(Math.floor(off / 60)) + Model.pad2(off % 60)
+  }
+
+  function entry(id, beginAgo, endAgo, description, tags) {
+    return {
+      id: id, begin: stamp(beginAgo), end: endAgo === null ? null : stamp(endAgo),
+      duration: endAgo === null ? 0 : (beginAgo - endAgo) * 60, description: description, tags: tags,
+      activity: { id: 3, name: "Code review" },
+      project: { id: 2, name: "Website", customer: { id: 1, name: "Acme" } }
+    }
+  }
+
+  function walk(item, out) {
+    if (!item) return out
+    out.push(item)
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) walk(kids[i], out)
+    return out
+  }
+
+  function find(item, predicate) {
+    var all = walk(item, [])
+    for (var i = 0; i < all.length; i++) if (predicate(all[i])) return all[i]
+    return null
+  }
+
+  function button(item, text) {
+    return find(item, function(o) {
+      return o.iconText !== undefined && o.clicked !== undefined && typeof o.text === "string"
+        && o.text.indexOf(text) === 0 && o.visible
+    })
+  }
+
+  function field(item, placeholder) {
+    return find(item, function(o) { return o.placeholderText === placeholder && o.echoMode !== undefined })
+  }
+
+  function textShown(item, text) {
+    return find(item, function(o) { return o.text === text && o.font !== undefined && o.visible }) !== null
+  }
+
+  function lastCall(svc, key) {
+    for (var i = svc.calls.length - 1; i >= 0; i--)
+      if (typeof svc.calls[i] === "object" && svc.calls[i][key] !== undefined) return svc.calls[i]
+    return null
+  }
+
+  function grab(item, name, then) {
+    item.grabToImage(function(result) {
+      if (harness.outDir) result.saveToFile(harness.outDir + "/" + name + ".png")
+      then()
+    })
+  }
+
+  MockService { id: runningSvc; active: [harness.entry(7, 83, null, "Fix login bug", ["billable"])]; recent: [harness.entry(5, 300, 240, "PR review", ["review"])] }
+  MockService { id: idleSvc; recent: [harness.entry(5, 300, 240, "PR review", ["review"])] }
+  MockService { id: daySvc; day: [harness.entry(11, 300, 210, "Planning", []), harness.entry(7, 83, null, "Fix login bug", [])] }
+  MockService { id: editSvc }
+  MockService { id: punchSvc; trackingMode: "punch" }
+  MockService { id: settingsSvc; hasToken: false; status: "unconfigured"; user: null }
+
+  FloatingWindow {
+    implicitWidth: 2200
+    implicitHeight: 1200
+    color: Color.popups.background
+
+    Row {
+      x: 16
+      y: 16
+      spacing: 24
+
+      Rectangle {
+        id: runningBox
+        width: 400; height: runningView.implicitHeight + 24; color: Color.popups.background
+        TimerView {
+          id: runningView
+          x: 12; y: 12; width: 376; svc: runningSvc
+          onEditRequested: function(e) { harness.edited = harness.edited.concat([e.id]) }
+        }
+      }
+
+      Rectangle {
+        id: idleBox
+        width: 400; height: idleView.implicitHeight + 24; color: Color.popups.background
+        TimerView { id: idleView; x: 12; y: 12; width: 376; svc: idleSvc }
+      }
+
+      Rectangle {
+        id: entriesBox
+        width: 400; height: entriesView.implicitHeight + 24; color: Color.popups.background
+        EntriesView {
+          id: entriesView
+          x: 12; y: 12; width: 376; svc: daySvc
+          onEditRequested: function(e) { harness.edited = harness.edited.concat([e.id]) }
+        }
+      }
+
+      Column {
+        spacing: 24
+        Rectangle {
+          id: editBox
+          width: 400; height: editForm.implicitHeight + 24; color: Color.popups.background
+          EditForm {
+            id: editForm
+            x: 12; y: 12; width: 376; svc: editSvc
+            onClosed: harness.editClosed = true
+          }
+        }
+        Rectangle {
+          id: punchBox
+          width: 400; height: punchForm.implicitHeight + 24; color: Color.popups.background
+          EditForm { id: punchForm; x: 12; y: 12; width: 376; svc: punchSvc }
+        }
+      }
+
+      Rectangle {
+        id: settingsBox
+        width: 400; height: settingsView.implicitHeight + 24; color: Color.popups.background
+        SettingsView { id: settingsView; x: 12; y: 12; width: 376; svc: settingsSvc }
+      }
+    }
+  }
+
+  function runChecks() {
+    // Timer tab, running
+    check("running timer shows elapsed time", harness.textShown(runningView, "1:23"))
+    var stop = harness.button(runningView, "Stop")
+    check("Stop button exists", stop !== null)
+    if (stop) stop.clicked()
+    check("Stop stops the running entry", runningSvc.calls.indexOf("stop:7") !== -1, JSON.stringify(runningSvc.calls))
+    var edit = harness.button(runningView, "Edit")
+    if (edit) edit.clicked()
+    check("Edit asks to edit the running entry", harness.edited.indexOf(7) !== -1, JSON.stringify(harness.edited))
+    check("start form hidden while a timer runs", harness.button(runningView, "Start") === null)
+
+    // Timer tab, idle
+    var picker = harness.find(idleView, function(o) { return o.reset !== undefined && o.projectId !== undefined })
+    check("start form pre-fills project from recent", picker && picker.projectId === "2", picker ? picker.projectId : "no picker")
+    check("start form pre-fills activity from recent", picker && picker.activityId === "3", picker ? picker.activityId : "no picker")
+    check("start form pre-fills description from recent", picker && picker.description === "PR review", picker ? picker.description : "no picker")
+    var start = harness.button(idleView, "Start")
+    check("Start enabled once project and activity are set", start !== null && start.enabled)
+    if (start) start.clicked()
+    var started = harness.lastCall(idleSvc, "start")
+    check("Start sends the picked fields", started !== null && started.start.projectId === "2" && started.start.activityId === "3"
+          && started.start.description === "PR review" && JSON.stringify(started.start.tags) === '["review"]', JSON.stringify(started))
+    var recentRow = harness.button(idleView, "Code review · Website")
+    if (recentRow) recentRow.clicked()
+    check("clicking a recent entry restarts it", idleSvc.calls.indexOf("restart:5") !== -1, JSON.stringify(idleSvc.calls))
+
+    // Entries tab
+    var today = Model.localDateString(Date.now())
+    check("Entries loads today on creation", daySvc.calls.indexOf("loadDay:" + today) !== -1, JSON.stringify(daySvc.calls))
+    var row = harness.find(entriesView, function(o) { return o.row !== undefined && o.clicked !== undefined && o.row.id === 11 })
+    if (row) row.clicked()
+    check("clicking an entry asks to edit it", harness.edited.indexOf(11) !== -1, JSON.stringify(harness.edited))
+    check("running entry is listed as …–now", harness.find(entriesView, function(o) { return o.row !== undefined && o.row.range.indexOf("–now") !== -1 }) !== null)
+    var loadsBefore = daySvc.count("loadDay:")
+    daySvc.refreshAll()
+    check("Entries reloads when the service refreshes", daySvc.count("loadDay:") > loadsBefore, JSON.stringify(daySvc.calls))
+    var next = harness.button(entriesView, "›")
+    check("› is disabled on today", next !== null && !next.enabled)
+    var prev = harness.button(entriesView, "‹")
+    if (prev) prev.clicked()
+    check("‹ loads yesterday", daySvc.calls.indexOf("loadDay:" + Model.addDays(today, -1)) !== -1, JSON.stringify(daySvc.calls))
+    check("› is enabled on earlier days", next !== null && next.enabled)
+
+    // Edit form
+    var finished = {
+      id: 11, begin: "2026-01-15T09:00:37+0100", end: "2026-01-15T10:30:00+0100", duration: 5363,
+      description: "Planning", tags: ["billable"], activity: { id: 3, name: "Code review" },
+      project: { id: 2, name: "Website", customer: { id: 1, name: "Acme" } }
+    }
+    editForm.entry = finished
+    var begin = harness.field(editForm, "09:00")
+    check("edit form shows the entry's start time", begin !== null && begin.text === Model.wallTime(finished.begin), begin ? begin.text : "no field")
+    begin.text = "25:00"
+    editForm.save()
+    check("bad start time is rejected before any request", harness.lastCall(editSvc, "update") === null)
+    check("bad start time shows a message", harness.textShown(editForm, "Start time must look like 09:30"))
+    begin.text = "08:15"
+    editForm.save()
+    var updated = harness.lastCall(editSvc, "update")
+    check("save sends only the changed start time", updated !== null && updated.update === 11
+          && updated.payload.begin === "2026-01-15T08:15:00" && updated.payload.end === undefined,
+          JSON.stringify(updated))
+    check("save keeps the entry's tags", updated !== null && updated.payload.tags === "billable", JSON.stringify(updated))
+    check("successful save closes the form", harness.editClosed)
+
+    punchForm.entry = finished
+    var punchBegin = harness.field(punchForm, "09:00")
+    check("punch mode hides the time fields", punchBegin !== null && !punchBegin.visible)
+
+    // Settings
+    harness.field(settingsView, "https://kimai.example.com").text = "kimai.example.com"
+    harness.field(settingsView, "Paste your API token").text = "secret-token"
+    var connect = harness.button(settingsView, "Connect")
+    if (connect) connect.clicked()
+    var connected = harness.lastCall(settingsSvc, "connect")
+    check("Connect passes URL and token to the service", connected !== null && connected.connect === "kimai.example.com"
+          && connected.token === "secret-token", JSON.stringify(connected))
+    check("Connect shows the service's message", harness.textShown(settingsView, "Connected as admin · Kimai 2.67.0"))
+    var poll = harness.find(settingsView, function(o) { return o.label === "Refresh every (seconds)" && o.modified !== undefined })
+    if (poll) poll.modified(60)
+    var prefs = harness.lastCall(settingsSvc, "prefs")
+    check("changing the refresh interval saves it", prefs !== null && prefs.prefs.pollSeconds === 60, JSON.stringify(prefs))
+  }
+
+  Timer {
+    interval: 700
+    running: true
+    onTriggered: {
+      try {
+        harness.runChecks()
+      } catch (e) {
+        harness.check("checks ran without exceptions", false, e + "")
+      }
+      harness.grab(runningBox, "timer-running", function() {
+        harness.grab(idleBox, "timer-idle", function() {
+          harness.grab(entriesBox, "entries", function() {
+            harness.grab(editBox, "edit", function() {
+              harness.grab(punchBox, "edit-punch", function() {
+                harness.grab(settingsBox, "settings", function() {
+                  console.log("UI DONE " + harness.failures)
+                  Qt.quit()
+                })
+              })
+            })
+          })
+        })
+      })
+    }
+  }
+
+  Timer {
+    interval: 20000
+    running: true
+    onTriggered: { console.log("UI FAIL harness timed out"); console.log("UI DONE 1"); Qt.quit() }
+  }
+}

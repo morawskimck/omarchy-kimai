@@ -84,7 +84,8 @@ of which Omarchy ships.
 ```bash
 git clone https://github.com/morawskimck/omarchy-kimai ~/Work/omarchy-kimai
 cd ~/Work/omarchy-kimai
-scripts/check.sh      # unit tests (node), qmllint, manifest validation
+scripts/check.sh      # unit tests (node), qmllint, UI tests, manifest validation
+scripts/ui-test.sh /tmp/kimai-ui   # UI tests only; keeps the screenshots
 scripts/dev-link.sh   # symlink into ~/.config/omarchy/plugins and rescan
 journalctl --user -t omarchy-shell -f   # QML errors and console.log
 ```
@@ -97,6 +98,8 @@ token.
 `Model.js` holds all pure logic and is tested with `node --test`. The QML
 files are thin: `Service.qml` runs once and owns state, polling and API calls,
 while `BarWidget.qml` and `Panel.qml` (with `views/`) render it.
+`tests/ui/` renders the real views offscreen against a mock service
+(`MockService.qml`) and clicks through them; it needs no Kimai server.
 
 ### Manual test checklist
 
