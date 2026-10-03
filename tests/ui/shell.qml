@@ -1,4 +1,5 @@
 import QtQuick
+import QtTest
 import Quickshell
 import qs.Commons
 import "plugin/views"
@@ -15,6 +16,7 @@ ShellRoot {
   id: harness
 
   property int failures: 0
+  property int closeRequests: 0
   property var edited: []
   property bool editClosed: false
   readonly property string outDir: Quickshell.env("KIMAI_UI_OUT")
@@ -108,6 +110,8 @@ ShellRoot {
     }
   }
   MockService { id: idleBarSvc }
+  MockService { id: contentSvc; active: [harness.entry(7, 83, null, "Fix login bug", ["billable"])] }
+  MockService { id: setupSvc; hasToken: false; status: "unconfigured"; user: null }
   MockService { id: connectedSvc; config: ({ url: "https://kimai.mine.example", pollSeconds: 30, labelMaxWidth: 180 }) }
   property bool connectedSignalled: false
   MockService { id: staleBarSvc; status: "stale"; active: [harness.entry(7, 83, null, "", [])] }
@@ -194,6 +198,14 @@ ShellRoot {
       }
 
       Column {
+        spacing: 24
+        PanelContent { id: panelContent; width: 376; svc: contentSvc; onCloseRequested: harness.closeRequests++ }
+        PanelContent { id: setupContent; width: 376; svc: setupSvc }
+        // Synthesises real key presses for the Escape checks.
+        TestCase { id: keys; when: false; name: "keys" }
+      }
+
+      Column {
         id: barsBox
         spacing: 8
         BarWidget { id: barWidgetRunning; bar: barRunning }
@@ -222,6 +234,29 @@ ShellRoot {
   }
 
   function runChecks() {
+    // Popup content: opening, Escape, tab switching
+    panelContent.opened = true
+    check("opening the popup refreshes the service", contentSvc.count("refreshAll") === 1, JSON.stringify(contentSvc.calls))
+    setupContent.opened = true
+    check("opening while unconfigured shows Settings", setupContent.tab === "settings", setupContent.tab)
+    panelContent.edit(contentSvc.active[0])
+    var contentEdit = harness.find(panelContent, function(o) { return o.save !== undefined && o.entry !== undefined })
+    var editDescription = harness.field(contentEdit, "What are you working on?")
+    editDescription.forceActiveFocus()
+    keys.keyClick(Qt.Key_Escape)
+    check("Escape while typing leaves the edit form", panelContent.editing === null && harness.closeRequests === 0,
+          "editing=" + (panelContent.editing !== null) + " closes=" + harness.closeRequests)
+    panelContent.tab = "settings"
+    var urlField = harness.field(panelContent, "https://kimai.example.com")
+    urlField.forceActiveFocus()
+    keys.keyClick(Qt.Key_Escape)
+    check("Escape while typing closes the popup", harness.closeRequests === 1, harness.closeRequests)
+    panelContent.handleEscape()
+    check("Escape outside a field closes the popup too", harness.closeRequests === 2, harness.closeRequests)
+    harness.field(panelContent, "Paste a new token to replace the saved one").text = "tok"
+    harness.button(panelContent, "Connect").clicked()
+    check("a successful connect switches to the Timer tab", panelContent.tab === "timer", panelContent.tab)
+
     // Bar widget
     var running = harness.barButton(barWidgetRunning)
     check("bar shows elapsed time of the newest timer", running && running.text.indexOf(Model.ICON + "  1:23 · ") === 0, running ? running.text : "no button")
