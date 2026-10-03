@@ -11,6 +11,7 @@ Column {
   property var svc: null
   property string message: ""
   readonly property var active: svc ? svc.active : []
+  readonly property bool busy: svc !== null && svc.busy === true
   readonly property bool textEditing: startForm.visible && startForm.textEditing
 
   signal editRequested(var entry)
@@ -45,8 +46,8 @@ Column {
       }
       Row {
         spacing: Style.space(8)
-        Button { text: "Stop"; iconText: ""; bordered: true; onClicked: root.svc.stop(modelData.id, root.report) }
-        Button { text: "Edit"; iconText: ""; bordered: true; onClicked: root.editRequested(modelData) }
+        Button { text: "Stop"; iconText: ""; bordered: true; enabled: !root.busy; onClicked: root.svc.stop(modelData.id, root.report) }
+        Button { text: "Edit"; iconText: ""; bordered: true; enabled: !root.busy; onClicked: root.editRequested(modelData) }
       }
     }
   }
@@ -70,6 +71,7 @@ Column {
       required property var modelData
       width: root.width
       leftAlign: true
+      enabled: !root.busy
       iconText: ""
       text: Model.activityName(modelData) + (modelData.project && modelData.project.name ? " · " + modelData.project.name : "")
       tooltipText: String(modelData.description || "")

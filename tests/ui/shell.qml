@@ -252,6 +252,10 @@ ShellRoot {
     if (edit) edit.clicked()
     check("Edit asks to edit the running entry", harness.edited.indexOf(7) !== -1, JSON.stringify(harness.edited))
     check("start form hidden while a timer runs", harness.button(runningView, "Start") === null)
+    runningSvc.busy = true
+    check("Stop and Edit are disabled while a change is in flight", stop !== null && !stop.enabled && edit !== null && !edit.enabled)
+    runningSvc.busy = false
+    check("and enabled again afterwards", stop !== null && stop.enabled)
 
     // Timer tab, idle
     var picker = harness.find(idleView, function(o) { return o.reset !== undefined && o.projectId !== undefined })
@@ -264,6 +268,10 @@ ShellRoot {
     var started = harness.lastCall(idleSvc, "start")
     check("Start sends the picked fields", started !== null && started.start.projectId === "2" && started.start.activityId === "3"
           && started.start.description === "PR review" && JSON.stringify(started.start.tags) === '["review"]', JSON.stringify(started))
+    idleSvc.busy = true
+    var recentWhileBusy = harness.button(idleView, "Code review · Website")
+    check("Start and Recent rows are disabled while a change is in flight", start !== null && !start.enabled && recentWhileBusy !== null && !recentWhileBusy.enabled)
+    idleSvc.busy = false
     var recentRow = harness.button(idleView, "Code review · Website")
     if (recentRow) recentRow.clicked()
     check("clicking a recent entry restarts it", idleSvc.calls.indexOf("restart:5") !== -1, JSON.stringify(idleSvc.calls))
@@ -299,6 +307,10 @@ ShellRoot {
     check("bad start time is rejected before any request", harness.lastCall(editSvc, "update") === null)
     check("bad start time shows a message", harness.textShown(editForm, "Start time must look like 09:30"))
     begin.text = "08:15"
+    editSvc.busy = true
+    var save = harness.button(editForm, "Save")
+    check("Save is disabled while a change is in flight", save !== null && !save.enabled)
+    editSvc.busy = false
     editForm.save()
     var updated = harness.lastCall(editSvc, "update")
     check("save sends only the changed start time", updated !== null && updated.update === 11

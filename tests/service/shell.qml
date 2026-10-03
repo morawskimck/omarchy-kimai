@@ -30,6 +30,7 @@ ShellRoot {
 
   // A fresh instance, to exercise startup with the config already in place.
   property var second: null
+  property var third: null
   property bool tokenAtUrlChange: true
 
   // Records whether the old token was still loaded at the moment the URL changed.
@@ -285,6 +286,24 @@ ShellRoot {
         })
       },
 
+      function() {
+        var stopsBefore = 0
+        h.control("/__log", null, function(log) {
+          stopsBefore = log.filter(function(r) { return /\/stop$/.test(r.path) }).length
+          var first = svc.toggle()
+          var second = svc.toggle() // a double middle-click
+          h.check("a second toggle while the first runs is refused", first === "stopping" && second === "busy", first + " / " + second)
+          h.waitFor("the first toggle stops the timer", function() { return svc.active.length === 0 && !svc.busy }, 10000, function() {
+            h.control("/__log", null, function(log2) {
+              var stops = log2.filter(function(r) { return /\/stop$/.test(r.path) }).length - stopsBefore
+              h.check("a double toggle sends one stop", stops === 1, stops)
+              svc.toggle()
+              h.waitFor("timer running again for the next checks", function() { return svc.active.length === 1 && !svc.busy })
+            })
+          })
+        })
+      },
+
       function() { h.control("/__mode", { mode: "html" }, function() { svc.refresh(); h.waitFor("proxy error page makes the state stale", function() { return svc.status === "stale" }) }) },
       function() {
         h.check("stale keeps the last known timer", svc.active.length === 1)
@@ -350,6 +369,18 @@ ShellRoot {
           svc.runCommand(Model.secretToolArgs("store", h.base), "test-token", function() {
             h.second.refreshAll() // what opening the popup or `omarchy-shell kimai refresh` does
             h.waitFor("refresh retries the keyring once it is unlocked", function() { return h.second.status === "ok" && h.second.hasToken })
+          })
+        })
+      },
+
+      function() {
+        h.control("/__mode", { mode: "down" }, function() {
+          h.third = serviceComponent.createObject(h)
+          h.waitFor("starting while the server is unreachable shows Offline, not an error", function() {
+            return h.third.status === "stale" && Model.statusLabel(h.third.status, null) === "Offline"
+          }, 8000, function() {
+            h.third.destroy()
+            h.control("/__mode", { mode: "ok" }, function() { h.next() })
           })
         })
       },

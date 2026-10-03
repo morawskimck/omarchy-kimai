@@ -49,7 +49,7 @@ Column {
     text: root.busy ? "Starting…" : "Start"
     iconText: ""
     bordered: true
-    enabled: !root.busy && fields.projectId !== "" && fields.activityId !== ""
+    enabled: !root.busy && !(root.svc && root.svc.busy) && fields.projectId !== "" && fields.activityId !== ""
     onClicked: root.submit()
   }
 

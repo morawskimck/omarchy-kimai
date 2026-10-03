@@ -27,6 +27,9 @@ Item {
   property string trackingMode: "default"
   readonly property bool allowTimeEdits: !Model.isPunchMode(trackingMode)
   readonly property bool hasToken: _token !== ""
+  // True while a start/stop/restart/update is in flight; views disable their
+  // action buttons and toggle() refuses, so a double click can't send twice.
+  readonly property bool busy: _inflight > 0
   property var active: []
   property var recent: []
   property double now: Date.now()
@@ -45,6 +48,7 @@ Item {
   property bool _busy: false
   // Bumped on every session reset; answers to older sessions are dropped.
   property int _session: 0
+  property int _inflight: 0
 
   // ---------------------------------------------------------- processes
 
@@ -103,6 +107,7 @@ Item {
   function _resetSession() {
     root._session++
     root._queue = []
+    root._inflight = 0 // callbacks of the old session are dropped
     pollTimer.stop()
     root._token = ""
     root.user = null
@@ -217,8 +222,9 @@ Item {
         root.errorText = r.message
         return
       } else if (r.kind !== "unconfigured") {
+        // Unreachable or failing server: Offline, also before the first sync.
         root._failures++
-        root.status = root.lastSync > 0 ? "stale" : "error"
+        root.status = "stale"
         root.errorText = r.message
       }
       root._schedulePoll()
@@ -259,6 +265,18 @@ Item {
   }
 
   // ---------------------------------------------------------- mutations
+
+  // Marks the service busy until the returned callback runs (once).
+  function _begin(cb) {
+    root._inflight++
+    var session = root._session
+    var done = false
+    return function(r) {
+      if (!done && session === root._session) root._inflight--
+      done = true
+      if (cb) cb(r)
+    }
+  }
 
   function _afterMutation(cb) {
     return function(r) {
@@ -304,14 +322,15 @@ Item {
       if (cb) cb({ kind: "invalid", status: 0, data: null, message: p.error })
       return
     }
+    var finish = _begin(cb)
     ensureTags(fields.tags, function(err) {
-      if (err) { if (cb) cb(err); return }
-      api("POST", "/timesheets", null, p.payload, _afterMutation(cb))
+      if (err) { finish(err); return }
+      api("POST", "/timesheets", null, p.payload, _afterMutation(finish))
     })
   }
 
   function stop(id, cb) {
-    api("PATCH", "/timesheets/" + id + "/stop", null, null, _afterMutation(cb))
+    api("PATCH", "/timesheets/" + id + "/stop", null, null, _afterMutation(_begin(cb)))
   }
 
   function stopAll(cb) {
@@ -332,23 +351,25 @@ Item {
   }
 
   function restart(id, cb) {
-    api("PATCH", "/timesheets/" + id + "/restart", null, { copy: "all" }, _afterMutation(cb))
+    api("PATCH", "/timesheets/" + id + "/restart", null, { copy: "all" }, _afterMutation(_begin(cb)))
   }
 
   // payload: the `payload` of a successful Model.validateEdit()
   function update(id, payload, cb) {
+    var finish = _begin(cb)
     ensureTags(String(payload.tags || "").split(","), function(err) {
-      if (err) { if (cb) cb(err); return }
-      api("PATCH", "/timesheets/" + id, null, payload, _afterMutation(cb))
+      if (err) { finish(err); return }
+      api("PATCH", "/timesheets/" + id, null, payload, _afterMutation(finish))
     })
   }
 
   // Restart the most recent entry. Kimai is asked first, because timers
   // started and stopped elsewhere since the last refresh are not in `recent`.
   function restartLast(cb) {
+    var finish = _begin(cb) // busy already while the recent list loads
     loadRecent(function() {
-      if (root.recent.length) restart(root.recent[0].id, cb)
-      else if (cb) cb({ kind: "invalid", status: 0, data: null, message: "Nothing to restart yet" })
+      if (root.recent.length) restart(root.recent[0].id, finish)
+      else finish({ kind: "invalid", status: 0, data: null, message: "Nothing to restart yet" })
     })
   }
 
@@ -356,6 +377,7 @@ Item {
   // Used by middle click and IPC, which have no UI, so failures notify.
   function toggle() {
     if (!root._token) return "unconfigured"
+    if (root.busy) return "busy"
     var report = function(r) { if (r.kind !== "ok") root.notify(r.message) }
     if (root.active.length) {
       stopAll(report)
@@ -452,9 +474,15 @@ Item {
     target: "kimai"
 
     function toggle(): string { return root.toggle() }
-    function stop(): string { root.stopAll(function(r) { if (r.kind !== "ok") root.notify(r.message) }); return "stopping" }
+    function stop(): string {
+      if (!root.hasToken) return "unconfigured"
+      if (root.busy) return "busy"
+      root.stopAll(function(r) { if (r.kind !== "ok") root.notify(r.message) })
+      return "stopping"
+    }
     function restartLast(): string {
       if (!root.hasToken) return "unconfigured"
+      if (root.busy) return "busy"
       root.restartLast(function(r) { if (r.kind !== "ok") root.notify(r.message) })
       return "restarting"
     }

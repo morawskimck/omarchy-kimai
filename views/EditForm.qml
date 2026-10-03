@@ -81,7 +81,7 @@ Column {
 
   Row {
     spacing: Style.space(8)
-    Button { text: root.busy ? "Saving…" : "Save"; bordered: true; enabled: !root.busy; onClicked: root.save() }
+    Button { text: root.busy ? "Saving…" : "Save"; bordered: true; enabled: !root.busy && !(root.svc && root.svc.busy); onClicked: root.save() }
     Button { text: "Cancel"; onClicked: root.closed() }
     Button {
       text: "Open in Kimai"

@@ -17,6 +17,7 @@ Item {
   property string trackingMode: "default"
   readonly property bool allowTimeEdits: !Model.isPunchMode(trackingMode)
   property bool hasToken: true
+  property bool busy: false
   property var active: []
   property var recent: []
   property double now: Date.now()
