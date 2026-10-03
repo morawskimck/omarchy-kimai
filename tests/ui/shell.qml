@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import qs.Commons
 import "plugin/views"
+import "plugin"
 import "plugin/tests/ui"
 import "plugin/Model.js" as Model
 
@@ -96,6 +97,42 @@ ShellRoot {
   MockService { id: editSvc }
   MockService { id: punchSvc; trackingMode: "punch" }
   MockService { id: settingsSvc; hasToken: false; status: "unconfigured"; user: null }
+  MockService {
+    id: barSvc
+    active: [harness.entry(7, 83, null, "", []), harness.entry(8, 200, null, "", []), harness.entry(9, 300, null, "", [])]
+    Component.onCompleted: {
+      var list = barSvc.active
+      list[0].activity = { id: 3, name: "Reviewing the extremely long pull request about timezone handling in reports" }
+      barSvc.active = Model.sortActive(list)
+    }
+  }
+  MockService { id: idleBarSvc }
+  MockService { id: staleBarSvc; status: "stale"; active: [harness.entry(7, 83, null, "", [])] }
+  MockService { id: brokenBarSvc; status: "unauthorized"; errorText: "Kimai rejected the API token" }
+
+  // Just enough of Omarchy's PluginBarApi for BarWidget.qml and WidgetButton.
+  component FakeBar: QtObject {
+    property var svc: null
+    property string fontFamily: Style.font.family
+    property color barForeground: Color.foreground
+    property color urgent: Color.urgent
+    property bool vertical: false
+    property int barSize: Style.bar.sizeHorizontal
+    property bool foregroundAnimationEnabled: false
+    property string position: "top"
+    property QtObject shell: QtObject { function serviceFor(id) { return id === Model.ID ? fakeBarShell.svc : null } }
+    readonly property var fakeBarShell: this
+    function showTooltip(target, text) {}
+    function hideTooltip(target) {}
+    function registerClickTarget(target) {}
+    function unregisterClickTarget(target) {}
+    function requestPopout(owner) {}
+    function releasePopout(owner) {}
+  }
+  FakeBar { id: barRunning; svc: barSvc }
+  FakeBar { id: barIdle; svc: idleBarSvc }
+  FakeBar { id: barStale; svc: staleBarSvc }
+  FakeBar { id: barBroken; svc: brokenBarSvc }
 
   FloatingWindow {
     implicitWidth: 2200
@@ -151,6 +188,15 @@ ShellRoot {
         }
       }
 
+      Column {
+        id: barsBox
+        spacing: 8
+        BarWidget { id: barWidgetRunning; bar: barRunning }
+        BarWidget { id: barWidgetIdle; bar: barIdle }
+        BarWidget { id: barWidgetStale; bar: barStale }
+        BarWidget { id: barWidgetBroken; bar: barBroken }
+      }
+
       Rectangle {
         id: settingsBox
         width: 400; height: settingsView.implicitHeight + 24; color: Color.popups.background
@@ -159,7 +205,26 @@ ShellRoot {
     }
   }
 
+  function barButton(widget) {
+    return harness.find(widget, function(o) { return o.pressed !== undefined && o.dimmed !== undefined && o.labelVisible !== undefined })
+  }
+
   function runChecks() {
+    // Bar widget
+    var running = harness.barButton(barWidgetRunning)
+    check("bar shows elapsed time of the newest timer", running && running.text.indexOf(Model.ICON + "  1:23 · ") === 0, running ? running.text : "no button")
+    check("a long activity name is elided", running && running.text.indexOf("…") !== -1 && running.text.indexOf("reports") === -1, running ? running.text : "")
+    check("extra running timers stay visible after elision", running && /…\s?\+2$/.test(running.text), running ? running.text : "")
+    check("bar label width is bounded", barWidgetRunning.implicitWidth < 330, barWidgetRunning.implicitWidth)
+    check("running timer is shown at full strength", running && !running.dimmed && !running.active)
+    var idle = harness.barButton(barWidgetIdle)
+    check("idle bar shows just the icon, dimmed", idle && idle.text === Model.ICON && idle.dimmed, idle ? idle.text + " dimmed=" + idle.dimmed : "")
+    var stale = harness.barButton(barWidgetStale)
+    check("stale bar keeps the label but dims it", stale && stale.text.indexOf("1:23") !== -1 && stale.dimmed, stale ? stale.text : "")
+    var broken = harness.barButton(barWidgetBroken)
+    check("a rejected token turns the icon to the urgent colour", broken && broken.active && !broken.dimmed, broken ? "active=" + broken.active : "")
+    check("tooltip explains a rejected token", broken && broken.tooltipText === "Kimai · Kimai rejected the API token", broken ? broken.tooltipText : "")
+
     // Timer tab, running
     check("running timer shows elapsed time", harness.textShown(runningView, "1:23"))
     var stop = harness.button(runningView, "Stop")
@@ -259,8 +324,10 @@ ShellRoot {
             harness.grab(editBox, "edit", function() {
               harness.grab(punchBox, "edit-punch", function() {
                 harness.grab(settingsBox, "settings", function() {
-                  console.log("UI DONE " + harness.failures)
-                  Qt.quit()
+                  harness.grab(barsBox, "bar", function() {
+                    console.log("UI DONE " + harness.failures)
+                    Qt.quit()
+                  })
                 })
               })
             })
