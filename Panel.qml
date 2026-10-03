@@ -111,6 +111,7 @@ Panel {
           width: parent.width
           svc: root.svc
           visible: root.editing === null && (root.tab === "settings" || !root.configured)
+          onConnectSucceeded: root.tab = "timer"
         }
 
         EditForm {

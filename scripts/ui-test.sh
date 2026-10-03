@@ -20,9 +20,9 @@ log="$out/ui-test.log"
 KIMAI_UI_OUT="$out" QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
   timeout 60 qs -p "$cfg/shell.qml" >"$log" 2>&1 || true
 
-grep -E "UI (PASS|FAIL)" "$log" | sed -E 's/.*(UI (PASS|FAIL))/\1/'
+{ grep -E "UI (PASS|FAIL)" "$log" || true; } | sed -E 's/.*(UI (PASS|FAIL))/\1/'
 grep -E "TypeError|ReferenceError|is not defined|Cannot (read|assign)" "$log" | sed -E 's/^.*qml[^:]*: //' | sort -u | sed 's/^/QML: /' || true
-failures=$(grep -oE "UI DONE [0-9]+" "$log" | awk '{print $3}' | tail -1)
+failures=$({ grep -oE "UI DONE [0-9]+" "$log" || true; } | awk '{print $3}' | tail -1)
 echo "screenshots: $out"
 if [[ -z $failures ]]; then echo "UI test did not finish; see $log" >&2; exit 1; fi
 [[ $failures == 0 ]]

@@ -16,13 +16,29 @@ Column {
   readonly property bool textEditing: urlField.activeFocus || tokenField.activeFocus
     || pollField.field.activeFocus || widthField.field.activeFocus
 
+  // Emitted after a successful Connect, so the panel can switch to Timer.
+  signal connectSucceeded()
+
   spacing: Style.space(8)
 
+  // Show the saved URL. The popup keeps this view alive while closed, so do it
+  // whenever the service or its URL changes, not only on visibility.
+  function syncUrl() {
+    if (!urlField.activeFocus) urlField.text = root.svc ? root.svc.url : ""
+  }
+
+  onSvcChanged: syncUrl()
+  Component.onCompleted: syncUrl()
   onVisibleChanged: {
     if (!visible) return
-    urlField.text = root.svc ? root.svc.url : ""
+    syncUrl()
     tokenField.text = ""
     root.message = ""
+  }
+
+  Connections {
+    target: root.svc
+    function onUrlChanged() { root.syncUrl() }
   }
 
   function connect() {
@@ -33,7 +49,9 @@ Column {
       root.busy = false
       root.messageIsError = r.kind !== "ok"
       root.message = r.message
-      if (r.kind === "ok") tokenField.text = ""
+      if (r.kind !== "ok") return
+      tokenField.text = ""
+      root.connectSucceeded()
     })
   }
 

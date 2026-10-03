@@ -107,6 +107,8 @@ ShellRoot {
     }
   }
   MockService { id: idleBarSvc }
+  MockService { id: connectedSvc; config: ({ url: "https://kimai.mine.example", pollSeconds: 30, labelMaxWidth: 180 }) }
+  property bool connectedSignalled: false
   MockService { id: staleBarSvc; status: "stale"; active: [harness.entry(7, 83, null, "", [])] }
   MockService { id: brokenBarSvc; status: "unauthorized"; errorText: "Kimai rejected the API token" }
 
@@ -195,6 +197,13 @@ ShellRoot {
         BarWidget { id: barWidgetIdle; bar: barIdle }
         BarWidget { id: barWidgetStale; bar: barStale }
         BarWidget { id: barWidgetBroken; bar: barBroken }
+      }
+
+      SettingsView {
+        id: connectedSettings
+        width: 376
+        svc: connectedSvc
+        onConnectSucceeded: harness.connectedSignalled = true
       }
 
       Rectangle {
@@ -295,6 +304,14 @@ ShellRoot {
     check("punch mode hides the time fields", punchBegin !== null && !punchBegin.visible)
 
     // Settings
+    var savedUrl = harness.field(connectedSettings, "https://kimai.example.com")
+    check("settings shows the saved server URL", savedUrl !== null && savedUrl.text === "https://kimai.mine.example", savedUrl ? savedUrl.text : "no field")
+    connectedSvc.config = { url: "https://kimai.other.example", pollSeconds: 30, labelMaxWidth: 180 }
+    check("settings follows a changed server URL", savedUrl !== null && savedUrl.text === "https://kimai.other.example", savedUrl ? savedUrl.text : "no field")
+    harness.field(connectedSettings, "Paste a new token to replace the saved one").text = "tok"
+    var reconnect = harness.button(connectedSettings, "Connect")
+    if (reconnect) reconnect.clicked()
+    check("a successful connect signals the panel", harness.connectedSignalled)
     harness.field(settingsView, "https://kimai.example.com").text = "kimai.example.com"
     harness.field(settingsView, "Paste your API token").text = "secret-token"
     var connect = harness.button(settingsView, "Connect")

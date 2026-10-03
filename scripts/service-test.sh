@@ -29,8 +29,8 @@ KIMAI_TEST_URL="http://127.0.0.1:$port" FAKE_KEYRING="$tmp/keyring" XDG_CONFIG_H
   PATH="$tmp/bin:$PATH" QT_QPA_PLATFORM=offscreen \
   timeout 90 qs -p "$tmp/cfg/shell.qml" >"$log" 2>&1 || true
 
-grep -E "SVC (PASS|FAIL)" "$log" | sed -E 's/.*(SVC (PASS|FAIL))/\1/'
+{ grep -E "SVC (PASS|FAIL)" "$log" || true; } | sed -E 's/.*(SVC (PASS|FAIL))/\1/'
 grep -E "TypeError|ReferenceError|is not defined|Cannot (read|assign)" "$log" | sed -E 's/^.*qml[^:]*: //' | sort -u | sed 's/^/QML: /' || true
-failures=$(grep -oE "SVC DONE [0-9]+" "$log" | awk '{print $3}' | tail -1)
+failures=$({ grep -oE "SVC DONE [0-9]+" "$log" || true; } | awk '{print $3}' | tail -1)
 if [[ -z $failures ]]; then echo "service test did not finish:" >&2; tail -20 "$log" >&2; exit 1; fi
 [[ $failures == 0 ]]
