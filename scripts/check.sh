@@ -5,7 +5,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
-TZ=Europe/Warsaw node --test tests/
+TZ=Europe/Warsaw node --test tests/*.test.js
 
 if command -v qmllint >/dev/null && [[ -d /usr/share/omarchy/shell ]]; then
   shopt -s nullglob

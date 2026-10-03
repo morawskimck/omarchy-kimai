@@ -13,6 +13,6 @@ jobs:
         with:
           node-version: 22
       - name: Unit tests
-        run: TZ=Europe/Warsaw node --test tests/
+        run: TZ=Europe/Warsaw node --test tests/*.test.js
       - name: Manifest is valid JSON
         run: jq empty manifest.json
