@@ -74,3 +74,10 @@ test("day helpers walk calendar dates across month and DST boundaries", () => {
   same(M.dayRange("2026-10-03"), { begin: "2026-10-03T00:00:00", end: "2026-10-03T23:59:59" })
   assert.equal(M.localDateString(Date.UTC(2026, 9, 2, 22, 30)), "2026-10-03") // 00:30 in Warsaw
 })
+
+test("normalizeUrl drops a web-UI path copied from the browser", () => {
+  same(M.normalizeUrl("https://kimai.example.com/en/timesheet/"), { ok: true, url: "https://kimai.example.com", error: "" })
+  same(M.normalizeUrl("https://example.com/kimai/de_AT/homepage"), { ok: true, url: "https://example.com/kimai", error: "" })
+  same(M.normalizeUrl("kimai.example.com/pl"), { ok: true, url: "https://kimai.example.com", error: "" })
+  same(M.normalizeUrl("https://example.com/kimai"), { ok: true, url: "https://example.com/kimai", error: "" })
+})

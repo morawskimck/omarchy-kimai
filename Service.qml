@@ -43,6 +43,8 @@ Item {
   property int _failures: 0
   property var _queue: []
   property bool _busy: false
+  // Bumped on every session reset; answers to older sessions are dropped.
+  property int _session: 0
 
   // ---------------------------------------------------------- processes
 
@@ -52,8 +54,11 @@ Item {
     var hasInput = input !== undefined && input !== null && input !== ""
     var r = runComponent.createObject(root, { command: argv, input: hasInput ? input : "", hasInput: hasInput })
     r.done.connect(function(code, out, err) {
-      if (cb) cb(code, out, err)
-      r.destroy()
+      try {
+        if (cb) cb(code, out, err)
+      } finally {
+        r.destroy()
+      }
     })
     r.start()
   }
@@ -78,14 +83,14 @@ Item {
 
   function _applyConfig(text) {
     var next = Model.parseConfig(text)
-    var urlChanged = next.url !== root.config.url
+    // Never let the old server's token or queued requests meet a new URL.
+    if (next.url !== root.config.url || !next.url) root._resetSession()
     root.config = next
     if (!next.url) {
-      root._resetSession()
       root.status = "unconfigured"
       return
     }
-    if (urlChanged || !root._token) root._loadToken()
+    if (!root._token) root._loadToken()
   }
 
   function _writeConfig(next) {
@@ -96,6 +101,8 @@ Item {
   }
 
   function _resetSession() {
+    root._session++
+    root._queue = []
     pollTimer.stop()
     root._token = ""
     root.user = null
@@ -141,9 +148,12 @@ Item {
 
   function _enqueue(baseUrl, token, method, path, params, body, cb, dedupeKey) {
     if (dedupeKey) {
-      for (var i = 0; i < root._queue.length; i++) if (root._queue[i].key === dedupeKey) return
+      for (var i = 0; i < root._queue.length; i++) {
+        if (root._queue[i].key === dedupeKey) { _pump(); return }
+      }
     }
-    root._queue.push({ baseUrl: baseUrl, token: token, method: method, path: path, params: params, body: body, cb: cb, key: dedupeKey || "" })
+    root._queue.push({ baseUrl: baseUrl, token: token, method: method, path: path, params: params, body: body, cb: cb,
+                       key: dedupeKey || "", session: root._session })
     _pump()
   }
 
@@ -155,8 +165,15 @@ Item {
                Model.curlConfig(job.token),
                function(code, out, err) {
       root._busy = false
-      var result = Model.classifyResponse(code, out, err)
-      if (job.cb) job.cb(result)
+      // Answers to a session that was disconnected or replaced are dropped, and
+      // a failing callback (e.g. from a destroyed view) must not stall the queue.
+      if (job.session === root._session && job.cb) {
+        try {
+          job.cb(Model.classifyResponse(code, out, err))
+        } catch (e) {
+          console.warn("kimai: request callback failed: " + e)
+        }
+      }
       root._pump()
     })
   }
@@ -194,7 +211,7 @@ Item {
         root.errorText = ""
         if (root.active.length)
           root.timezoneMismatch = Model.timezoneMismatch(root.active[0].begin, Model.localOffsetAt(root.now))
-      } else if (r.kind === "unauthorized") {
+      } else if (r.kind === "unauthorized" || r.kind === "forbidden") {
         pollTimer.stop()
         root.status = "unauthorized"
         root.errorText = r.message
@@ -208,17 +225,25 @@ Item {
     }, "active")
   }
 
-  function loadRecent() {
+  // cb (optional) runs once the list is updated; a request with a cb is never
+  // merged into one that is already queued.
+  function loadRecent(cb) {
     api("GET", "/timesheets/recent", { size: 10 }, null, function(r) {
       if (r.kind === "ok") {
         root.recent = Array.isArray(r.data) ? r.data : []
         if (!root.active.length && root.recent.length)
           root.timezoneMismatch = Model.timezoneMismatch(root.recent[0].begin, Model.localOffsetAt(Date.now()))
       }
-    }, "recent")
+      if (cb) cb(r)
+    }, cb ? "" : "recent")
   }
 
   function refreshAll() {
+    // Without a token the keyring may have been locked earlier; try it again.
+    if (!root._token) {
+      if (root.config.url) root._loadToken()
+      return
+    }
     root.refreshing()
     refresh()
     loadRecent()
@@ -318,6 +343,15 @@ Item {
     })
   }
 
+  // Restart the most recent entry. Kimai is asked first, because timers
+  // started and stopped elsewhere since the last refresh are not in `recent`.
+  function restartLast(cb) {
+    loadRecent(function() {
+      if (root.recent.length) restart(root.recent[0].id, cb)
+      else if (cb) cb({ kind: "invalid", status: 0, data: null, message: "Nothing to restart yet" })
+    })
+  }
+
   // Stop everything that runs, or restart the most recent entry when idle.
   // Used by middle click and IPC, which have no UI, so failures notify.
   function toggle() {
@@ -327,11 +361,8 @@ Item {
       stopAll(report)
       return "stopping"
     }
-    if (root.recent.length) {
-      restart(root.recent[0].id, report)
-      return "restarting"
-    }
-    return "nothing to restart"
+    restartLast(report)
+    return "restarting"
   }
 
   // ---------------------------------------------------------- lookups
@@ -373,7 +404,10 @@ Item {
     _enqueue(n.url, t, "GET", "/users/me", null, null, function(me) {
       if (me.kind !== "ok") {
         root.status = previousStatus
-        cb(me.kind === "unauthorized" ? { kind: me.kind, message: "Kimai rejected this token" } : me)
+        if (me.kind === "unauthorized") cb({ kind: me.kind, message: "Kimai rejected this token" })
+        else if (me.kind === "notfound")
+          cb({ kind: me.kind, message: "No Kimai API at " + n.url + "/api. Enter the address of your Kimai start page, without /en/… or other paths." })
+        else cb(me)
         return
       }
       _enqueue(n.url, t, "GET", "/version", null, null, function(ver) {
@@ -420,8 +454,8 @@ Item {
     function toggle(): string { return root.toggle() }
     function stop(): string { root.stopAll(function(r) { if (r.kind !== "ok") root.notify(r.message) }); return "stopping" }
     function restartLast(): string {
-      if (!root.recent.length) return "nothing to restart"
-      root.restart(root.recent[0].id, function(r) { if (r.kind !== "ok") root.notify(r.message) })
+      if (!root.hasToken) return "unconfigured"
+      root.restartLast(function(r) { if (r.kind !== "ok") root.notify(r.message) })
       return "restarting"
     }
     function refresh(): string { root.refreshAll(); return "refreshing" }

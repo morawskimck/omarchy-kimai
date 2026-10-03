@@ -28,7 +28,17 @@ function normalizeUrl(input) {
   var host = m[2].toLowerCase()
   if (scheme === "http" && host !== "localhost" && host !== "127.0.0.1")
     return { ok: false, url: "", error: "Use https:// (plain http only works for localhost)" }
-  return { ok: true, url: scheme + "://" + host + (m[3] || "") + (m[4] || ""), error: "" }
+  return { ok: true, url: scheme + "://" + host + (m[3] || "") + stripWebPath(m[4] || ""), error: "" }
+}
+
+// A URL copied from the browser carries Kimai's locale and page
+// (/en/timesheet/...); the API lives next to the locale, so cut there.
+function stripWebPath(path) {
+  var segments = path.split("/")
+  for (var i = 1; i < segments.length; i++) {
+    if (/^[a-z]{2}(_[A-Z]{2})?$/.test(segments[i])) return segments.slice(0, i).join("/")
+  }
+  return path
 }
 
 function parseConfig(text) {
@@ -164,7 +174,9 @@ function curlConfig(token) {
 }
 
 function buildCurlArgs(method, url, body) {
-  var args = ["curl", "-sS", "--max-time", "15", "--config", "-", "-X", String(method || "GET"),
+  // -q (must be first) ignores ~/.curlrc, which could add verbose output or
+  // tracing that would expose the Authorization header.
+  var args = ["curl", "-q", "-sS", "--connect-timeout", "5", "--max-time", "15", "--config", "-", "-X", String(method || "GET"),
               "-H", "Accept: application/json", "-w", "\n%{http_code}"]
   if (body !== undefined && body !== null)
     args.push("-H", "Content-Type: application/json", "--data-binary", JSON.stringify(body))
@@ -206,7 +218,7 @@ function extractError(data, fallback) {
 }
 
 // Result shape every caller of Service.api() receives:
-// { kind: ok|invalid|unauthorized|notfound|server|network, status, data, message }
+// { kind: ok|invalid|unauthorized|forbidden|notfound|server|network, status, data, message }
 function classifyResponse(exitCode, stdout, stderr) {
   if (exitCode !== 0) return { kind: "network", status: 0, data: null, message: networkMessage(exitCode, stderr) }
   var res = parseCurlOutput(stdout)
@@ -219,7 +231,9 @@ function classifyResponse(exitCode, stdout, stderr) {
     if (!parsed) return { kind: "server", status: res.status, data: null, message: "Unexpected response from the server" }
     return { kind: "ok", status: res.status, data: data, message: "" }
   }
-  if (res.status === 401 || res.status === 403) return { kind: "unauthorized", status: res.status, data: data, message: "Kimai rejected the API token" }
+  if (res.status === 401) return { kind: "unauthorized", status: 401, data: data, message: "Kimai rejected the API token" }
+  // 403 is a permission problem (locked or exported entry, no right to create tags).
+  if (res.status === 403) return { kind: "forbidden", status: 403, data: data, message: extractError(data, "Kimai refused this action") }
   if (res.status === 400) return { kind: "invalid", status: 400, data: data, message: extractError(data) }
   if (res.status === 404) return { kind: "notfound", status: 404, data: data, message: extractError(data, "Not found") }
   return { kind: "server", status: res.status, data: data, message: "Kimai answered HTTP " + (res.status || "?") }

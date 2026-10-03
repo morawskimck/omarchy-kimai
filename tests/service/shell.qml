@@ -30,6 +30,20 @@ ShellRoot {
 
   // A fresh instance, to exercise startup with the config already in place.
   property var second: null
+  property bool tokenAtUrlChange: true
+
+  // Records whether the old token was still loaded at the moment the URL changed.
+  Connections {
+    target: h.second
+    function onConfigChanged() { if (h.second.config.url !== h.base) h.tokenAtUrlChange = h.second.hasToken }
+  }
+
+  function after(ms, fn) {
+    var t = Qt.createQmlObject("import QtQuick; Timer {}", h)
+    t.interval = ms
+    t.triggered.connect(function() { t.destroy(); fn() })
+    t.start()
+  }
   Component { id: serviceComponent; Service {} }
 
   function check(name, ok, detail) {
@@ -109,6 +123,13 @@ ShellRoot {
       function() {
         svc.connect("http://example.com", "test-token", function(r) {
           h.check("plain http to a remote host is refused", r.kind === "invalid" && r.message.indexOf("https://") !== -1, JSON.stringify(r))
+          h.next()
+        })
+      },
+
+      function() {
+        svc.connect(h.base + "/nothing-here", "test-token", function(r) {
+          h.check("a URL with no Kimai API explains what to enter", r.kind === "notfound" && r.message.indexOf("No Kimai API at " + h.base + "/nothing-here/api") === 0, JSON.stringify(r))
           h.next()
         })
       },
@@ -202,6 +223,16 @@ ShellRoot {
       },
 
       function() {
+        h.control("/__patchLocked", { locked: true }, function() {
+          svc.update(svc.active[0].id, { project: 2, activity: 3, description: "Locked", tags: "" }, function(r) {
+            h.check("a 403 on an edit shows Kimai's reason, not a token problem", r.kind === "forbidden" && r.message === "This timesheet is locked.", JSON.stringify(r))
+            h.check("a 403 on an edit does not log the user out", svc.status === "ok", svc.status)
+            h.control("/__patchLocked", { locked: false }, function() { h.next() })
+          })
+        })
+      },
+
+      function() {
         svc.update(5, { end: h.today + "T00:00:00", begin: h.today + "T01:00:00" }, function(r) {
           h.check("invalid edit returns Kimai's message", r.kind === "invalid" && r.message === "End date must not be earlier then start date.", JSON.stringify(r))
           h.next()
@@ -231,6 +262,29 @@ ShellRoot {
         })
       },
 
+      function() {
+        var synced = svc.lastSync
+        svc.api("GET", "/version", null, null, function() { throw new Error("view went away") })
+        svc.refresh()
+        h.waitFor("a callback that throws does not stall the request queue", function() { return svc.lastSync > synced })
+      },
+
+      function() {
+        svc.stopAll(function() {
+          h.waitFor("idle before the external-timer check", function() { return svc.active.length === 0 })
+        })
+      },
+
+      function() {
+        h.control("/__external", { description: "From web" }, function() {
+          var r = svc.toggle()
+          h.check("toggle while idle restarts", r === "restarting", r)
+          h.waitFor("toggle restarts what was tracked last elsewhere, not a stale recent entry", function() {
+            return svc.active.length === 1 && svc.active[0].description === "From web"
+          })
+        })
+      },
+
       function() { h.control("/__mode", { mode: "html" }, function() { svc.refresh(); h.waitFor("proxy error page makes the state stale", function() { return svc.status === "stale" }) }) },
       function() {
         h.check("stale keeps the last known timer", svc.active.length === 1)
@@ -254,11 +308,18 @@ ShellRoot {
       },
 
       function() {
-        svc.disconnect(function() {
-          h.check("disconnect returns to unconfigured", svc.status === "unconfigured" && !svc.hasToken && svc.active.length === 0, svc.status)
-          h.shell(["sh", "-c", "ls \"$FAKE_KEYRING\" | wc -l"], function(code, out) {
-            h.check("disconnect removes the keyring entry", out.trim() === "0", out)
-            h.next()
+        h.control("/__token", { token: "test-token" }, function() {
+          svc.refreshAll() // requests in flight while the user disconnects
+          svc.disconnect(function() {
+            h.after(1500, function() {
+              h.check("requests from before a disconnect don't revive the session",
+                      svc.status === "unconfigured" && !svc.hasToken && svc.active.length === 0,
+                      "status=" + svc.status + " active=" + svc.active.length)
+              h.shell(["sh", "-c", "ls \"$FAKE_KEYRING\" | wc -l"], function(code, out) {
+                h.check("disconnect removes the keyring entry", out.trim() === "0", out)
+                h.next()
+              })
+            })
           })
         })
       },
@@ -280,6 +341,25 @@ ShellRoot {
           h.second = serviceComponent.createObject(h)
           h.waitFor("a locked keyring at startup shows an error", function() {
             return h.second.status === "error" && h.second.errorText.indexOf("Keyring unavailable: ") === 0
+          })
+        })
+      },
+
+      function() {
+        h.shell(["rm", h.keyringDir + "/FAIL"], function() {
+          svc.runCommand(Model.secretToolArgs("store", h.base), "test-token", function() {
+            h.second.refreshAll() // what opening the popup or `omarchy-shell kimai refresh` does
+            h.waitFor("refresh retries the keyring once it is unlocked", function() { return h.second.status === "ok" && h.second.hasToken })
+          })
+        })
+      },
+
+      function() {
+        var text = JSON.stringify({ url: "http://127.0.0.1:9" })
+        h.shell(["sh", "-c", "printf '%s' '" + text + "' > \"$1\"", "sh", h.configPath], function() {
+          h.waitFor("a URL changed in config.json is picked up", function() { return h.second.config.url === "http://127.0.0.1:9" }, 3000, function() {
+            h.check("the old server's token is dropped before the new URL is used", h.tokenAtUrlChange === false)
+            h.next()
           })
         })
       }

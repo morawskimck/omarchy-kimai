@@ -10,7 +10,7 @@ test("curlConfig escapes quotes and backslashes and drops newlines", () => {
 
 test("buildCurlArgs never carries the token and only adds a body when given", () => {
   const get = M.buildCurlArgs("GET", "https://k.example/api/timesheets/active", null)
-  same(get, ["curl", "-sS", "--max-time", "15", "--config", "-", "-X", "GET",
+  same(get, ["curl", "-q", "-sS", "--connect-timeout", "5", "--max-time", "15", "--config", "-", "-X", "GET",
              "-H", "Accept: application/json", "-w", "\n%{http_code}", "https://k.example/api/timesheets/active"])
   const post = M.buildCurlArgs("POST", "https://k.example/api/timesheets", { project: 1, description: 'say "hi"' })
   same(post.slice(-4), ["Content-Type: application/json", "--data-binary", '{"project":1,"description":"say \\"hi\\""}', "https://k.example/api/timesheets"])
@@ -34,7 +34,6 @@ test("classifyResponse maps HTTP results to the kinds the service reacts to", ()
   same(M.classifyResponse(0, '[{"id":1}]\n200', ""), { kind: "ok", status: 200, data: [{ id: 1 }], message: "" })
   same(M.classifyResponse(0, "\n204", ""), { kind: "ok", status: 204, data: null, message: "" })
   assert.equal(M.classifyResponse(0, '{"code":401,"message":"Invalid credentials"}\n401', "").kind, "unauthorized")
-  assert.equal(M.classifyResponse(0, "\n403", "").kind, "unauthorized")
   assert.equal(M.classifyResponse(0, '{"message":"Not Found"}\n404', "").kind, "notfound")
 })
 
@@ -85,4 +84,16 @@ test("extractError understands the 400 body captured from Kimai in Task 1", () =
   assert.notEqual(message, "Kimai rejected the request")
   assert.notEqual(message, "Validation Failed")
   assert.ok(message.length > 0)
+})
+
+test("403 is a permission problem with Kimai's own message, not a bad token", () => {
+  same(M.classifyResponse(0, '{"code":403,"message":"Access denied."}\n403', ""),
+       { kind: "forbidden", status: 403, data: { code: 403, message: "Access denied." }, message: "Access denied." })
+  assert.equal(M.classifyResponse(0, "\n403", "").message, "Kimai refused this action")
+})
+
+test("curl ignores the user's ~/.curlrc (-q must come first) and gives up connecting after 5 s", () => {
+  const args = M.buildCurlArgs("GET", "https://k.example/api/version", null)
+  assert.equal(args[1], "-q")
+  assert.equal(args[args.indexOf("--connect-timeout") + 1], "5")
 })

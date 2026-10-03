@@ -8,6 +8,7 @@ const http = require("node:http")
 let token = "test-token"
 const tagNames = ["alpha", "review"]
 let tagsLocked = false // POST /__tagsLocked {"locked": true}: refuse tag creation like a user without create_tag
+let patchLocked = false // POST /__patchLocked {"locked": true}: answer edits with 403 like a locked/exported entry
 let mode = "ok"
 let nextId = 100
 const log = []
@@ -88,6 +89,7 @@ function route(req, res, url, body) {
                                    description: copy ? t.description : "", tags: copy ? t.tags.join(",") : "" }))
   }
   if ((match = /^\/api\/timesheets\/(\d+)$/.exec(p)) && m === "PATCH") {
+    if (patchLocked) return json(res, 403, { code: 403, message: "This timesheet is locked." })
     const t = sheets.find(s => s.id === Number(match[1]))
     if (!t) return json(res, 404, { message: "Not found" })
     const f = JSON.parse(body || "{}")
@@ -123,6 +125,13 @@ function control(req, res, url, body) {
   if (url.pathname === "/__token") { token = JSON.parse(body).token; return json(res, 200, {}) }
   if (url.pathname === "/__log") return json(res, 200, log)
   if (url.pathname === "/__tagsLocked") { tagsLocked = JSON.parse(body).locked; return json(res, 200, {}) }
+  if (url.pathname === "/__patchLocked") { patchLocked = JSON.parse(body).locked; return json(res, 200, {}) }
+  // A timer started and stopped elsewhere (web UI, phone), between two polls.
+  if (url.pathname === "/__external") {
+    const t = create({ project: 2, activity: 9, description: JSON.parse(body).description, tags: "" })
+    stop(t)
+    return json(res, 200, t)
+  }
   return json(res, 404, {})
 }
 
