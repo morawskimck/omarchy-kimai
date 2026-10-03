@@ -16,6 +16,10 @@ Column {
   property var projectOptions: []
   property var activityOptions: []
   property var tagOptions: []
+  // Names from the prefill: shown until the lists load, and kept when the
+  // entry's project or activity is hidden/archived and missing from them.
+  property string _projectLabel: ""
+  property string _activityLabel: ""
   property alias description: descriptionField.text
   readonly property var tags: Model.mergeTags(root.selectedTags, newTagsField.text)
   readonly property bool textEditing: descriptionField.activeFocus || newTagsField.activeFocus
@@ -32,10 +36,14 @@ Column {
     root.selectedTags = prefill.tags
     descriptionField.text = prefill.description
     newTagsField.text = ""
-    root.projectOptions = root.withOption(root.projectOptions, prefill.projectId, prefill.projectLabel)
-    root.activityOptions = root.withOption([], prefill.activityId, prefill.activityLabel)
+    root._projectLabel = prefill.projectLabel || ""
+    root._activityLabel = prefill.activityLabel || ""
+    root.projectOptions = root.withOption(root.projectOptions, prefill.projectId, root._projectLabel)
+    root.activityOptions = root.withOption([], prefill.activityId, root._activityLabel)
     if (!root.svc) return
-    root.svc.projects(function(r) { if (r.kind === "ok") root.projectOptions = Model.toOptions(r.data) })
+    root.svc.projects(function(r) {
+      if (r.kind === "ok") root.projectOptions = root.withOption(Model.toOptions(r.data), root.projectId, root._projectLabel)
+    })
     root.svc.tags(function(r) { if (r.kind === "ok") root.tagOptions = Model.tagOptions(r.data) })
     root.loadActivities(false)
   }
@@ -52,7 +60,8 @@ Column {
     if (!root.svc || !root.projectId) return
     var forProject = root.projectId
     root.svc.activities(forProject, function(r) {
-      if (r.kind === "ok" && forProject === root.projectId) root.activityOptions = Model.toOptions(r.data)
+      if (r.kind === "ok" && forProject === root.projectId)
+        root.activityOptions = root.withOption(Model.toOptions(r.data), root.activityId, root._activityLabel)
     })
   }
 
@@ -66,6 +75,7 @@ Column {
     onChanged: function(value) {
       root.projectId = value
       root.activityId = ""
+      root._activityLabel = ""
       root.loadActivities(true)
     }
   }

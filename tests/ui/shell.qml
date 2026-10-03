@@ -190,6 +190,7 @@ ShellRoot {
           EditForm { id: punchForm; x: 12; y: 12; width: 376; svc: punchSvc }
         }
         EditForm { id: slowForm; width: 376; svc: slowSvc }
+        EditForm { id: archivedForm; width: 376; svc: editSvc }
       }
 
       Column {
@@ -311,6 +312,15 @@ ShellRoot {
     check("edit form shows project and activity names before the lists load",
           dropdowns.length >= 2 && dropdowns[0].currentLabel() === "Website" && dropdowns[1].currentLabel() === "Code review",
           dropdowns.map(function(d) { return d.currentLabel() }).join(" / "))
+
+    var archived = JSON.parse(JSON.stringify(finished))
+    archived.project = { id: 77, name: "Old website", customer: { id: 1, name: "Acme" } }
+    archived.activity = { id: 78, name: "Legacy support" }
+    archivedForm.entry = archived
+    var archivedDropdowns = harness.walk(archivedForm, []).filter(function(o) { return typeof o.currentLabel === "function" && o.options !== undefined })
+    check("an entry of a hidden or archived project keeps its names after the lists load",
+          archivedDropdowns.length >= 2 && archivedDropdowns[0].currentLabel() === "Old website" && archivedDropdowns[1].currentLabel() === "Legacy support",
+          archivedDropdowns.map(function(d) { return d.currentLabel() }).join(" / "))
 
     punchForm.entry = finished
     var punchBegin = harness.field(punchForm, "09:00")
