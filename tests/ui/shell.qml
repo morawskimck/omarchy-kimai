@@ -276,6 +276,17 @@ ShellRoot {
     if (recentRow) recentRow.clicked()
     check("clicking a recent entry restarts it", idleSvc.calls.indexOf("restart:5") !== -1, JSON.stringify(idleSvc.calls))
 
+    var describe = harness.field(idleView, "What are you working on?")
+    describe.text = "My own task"
+    describe.textEdited()
+    idleView.visible = false // switching to another tab and back
+    idleView.visible = true
+    check("switching tabs keeps what the user typed", picker.description === "My own task", picker.description)
+    if (start) start.clicked()
+    idleView.visible = false
+    idleView.visible = true
+    check("after a start, the form pre-fills from Recent again", picker.description === "PR review", picker.description)
+
     // Entries tab
     var today = Model.localDateString(Date.now())
     check("Entries loads today on creation", daySvc.calls.indexOf("loadDay:" + today) !== -1, JSON.stringify(daySvc.calls))

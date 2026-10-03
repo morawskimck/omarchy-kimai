@@ -10,11 +10,14 @@ Column {
   property var svc: null
   property string message: ""
   property bool busy: false
+  // The user changed the form; keep it until they start a timer.
+  property bool dirty: false
   readonly property bool textEditing: fields.textEditing
 
   spacing: Style.space(8)
 
   function load() {
+    root.dirty = false
     root.message = ""
     fields.reset(Model.prefillFromRecent(root.svc ? root.svc.recent : []))
   }
@@ -25,17 +28,19 @@ Column {
     root.svc.start({ projectId: fields.projectId, activityId: fields.activityId, description: fields.description, tags: fields.tags }, function(r) {
       root.busy = false
       root.message = r.kind === "ok" ? "" : r.message
+      if (r.kind === "ok") root.dirty = false
     })
   }
 
-  onVisibleChanged: if (visible) load()
-  onSvcChanged: if (visible) load()
+  onVisibleChanged: if (visible && !dirty) load()
+  onSvcChanged: if (visible && !dirty) load()
   Component.onCompleted: if (visible) load()
 
-  // Recent entries usually arrive after the form is first shown.
+  // Recent entries arrive after the form is shown (and change after a stop),
+  // so pre-fill again unless the user has started filling it in.
   Connections {
     target: root.svc
-    function onRecentChanged() { if (root.visible && fields.projectId === "") root.load() }
+    function onRecentChanged() { if (root.visible && !root.dirty) root.load() }
   }
 
   PickerFields {
@@ -43,6 +48,7 @@ Column {
     width: parent.width
     svc: root.svc
     onSubmitted: root.submit()
+    onEdited: root.dirty = true
   }
 
   Button {

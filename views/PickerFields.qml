@@ -25,6 +25,8 @@ Column {
   readonly property bool textEditing: descriptionField.activeFocus || newTagsField.activeFocus
 
   signal submitted()
+  // Any change made by the user (not by reset()).
+  signal edited()
 
   spacing: Style.space(8)
 
@@ -77,6 +79,7 @@ Column {
       root.activityId = ""
       root._activityLabel = ""
       root.loadActivities(true)
+      root.edited()
     }
   }
 
@@ -88,7 +91,7 @@ Column {
     enabled: root.projectId !== ""
     options: root.activityOptions
     value: root.activityId
-    onChanged: function(value) { root.activityId = value }
+    onChanged: function(value) { root.activityId = value; root.edited() }
   }
 
   TextField {
@@ -96,6 +99,7 @@ Column {
     width: parent.width
     placeholderText: "What are you working on?"
     onAccepted: root.submitted()
+    onTextEdited: root.edited()
   }
 
   MultiSelect {
@@ -104,12 +108,13 @@ Column {
     noSelectionText: "No tags"
     options: root.tagOptions
     values: root.selectedTags
-    onChanged: function(values) { root.selectedTags = values }
+    onChanged: function(values) { root.selectedTags = values; root.edited() }
   }
 
   TextField {
     id: newTagsField
     width: parent.width
     placeholderText: "New tags, comma separated"
+    onTextEdited: root.edited()
   }
 }
