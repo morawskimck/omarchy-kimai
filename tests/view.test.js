@@ -116,3 +116,13 @@ test("statusSnapshot is what `omarchy-shell kimai status` prints", () => {
     timers: [{ id: 7, activity: "Code review", project: "Website · Acme", begin: "2026-10-03T09:00:00+0200", elapsed: "1:23" }]
   })
 })
+
+test("statusLabel turns service states into short header text", () => {
+  assert.equal(M.statusLabel("unconfigured", null), "Not connected")
+  assert.equal(M.statusLabel("connecting", null), "Connecting…")
+  assert.equal(M.statusLabel("ok", { alias: null, username: "admin" }), "admin")
+  assert.equal(M.statusLabel("ok", null), "Connected")
+  assert.equal(M.statusLabel("stale", null), "Offline")
+  assert.equal(M.statusLabel("unauthorized", null), "Token rejected")
+  assert.equal(M.statusLabel("error", null), "Error")
+})

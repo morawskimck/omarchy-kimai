@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.morawskimck.kimai",
+  "name": "Kimai",
+  "version": "0.1.0",
+  "author": "morawskimck",
+  "license": "MIT",
+  "description": "Unofficial Kimai time-tracking timer for the Omarchy bar: see the running timer, start, stop and edit timesheets.",
+  "kinds": ["bar-widget", "service"],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Kimai",
+    "description": "Running Kimai timer with start, stop and edit",
+    "category": "Time",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,398 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "Model.js" as Model
+
+// One instance per plugin (bar widgets exist once per monitor). Owns the
+// config file, the API token, polling, the request queue and all Kimai state.
+// Widgets and the panel bind to its properties and call its functions.
+Item {
+  id: root
+
+  // Injected by the shell when declared.
+  property string omarchyPath: ""
+
+  readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omarchy-kimai"
+  readonly property string configPath: configDir + "/config.json"
+
+  // ---- public state
+  // unconfigured | connecting | ok | stale | unauthorized | error
+  property string status: "unconfigured"
+  property string errorText: ""
+  property double lastSync: 0
+  property var config: Model.parseConfig("")
+  readonly property string url: config.url
+  property var user: null
+  property string serverVersion: ""
+  property string trackingMode: "default"
+  readonly property bool allowTimeEdits: !Model.isPunchMode(trackingMode)
+  readonly property bool hasToken: _token !== ""
+  property var active: []
+  property var recent: []
+  property double now: Date.now()
+  property bool timezoneMismatch: false
+
+  // Emitted after any successful start/stop/restart/update.
+  signal timesheetsChanged()
+
+  // ---- private
+  property string _token: ""
+  property int _failures: 0
+  property var _queue: []
+  property bool _busy: false
+
+  // ---------------------------------------------------------- processes
+
+  Component { id: runComponent; Run {} }
+
+  function runCommand(argv, input, cb) {
+    var hasInput = input !== undefined && input !== null && input !== ""
+    var r = runComponent.createObject(root, { command: argv, input: hasInput ? input : "", hasInput: hasInput })
+    r.done.connect(function(code, out, err) {
+      if (cb) cb(code, out, err)
+      r.destroy()
+    })
+    r.start()
+  }
+
+  function notify(message) {
+    var bin = root.omarchyPath ? root.omarchyPath + "/bin/omarchy-notification-send" : "omarchy-notification-send"
+    Quickshell.execDetached([bin, "-g", Model.ICON, "Kimai", message])
+  }
+
+  // ---------------------------------------------------------- config + token
+
+  FileView {
+    id: configFile
+    path: root.configPath
+    watchChanges: true
+    atomicWrites: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root._applyConfig(text())
+    onLoadFailed: root._applyConfig("")
+  }
+
+  function _applyConfig(text) {
+    var next = Model.parseConfig(text)
+    var urlChanged = next.url !== root.config.url
+    root.config = next
+    if (!next.url) {
+      root._resetSession()
+      root.status = "unconfigured"
+      return
+    }
+    if (urlChanged || !root._token) root._loadToken()
+  }
+
+  function _writeConfig(next) {
+    root.config = Model.parseConfig(JSON.stringify(next))
+    runCommand(["mkdir", "-p", root.configDir], null, function() {
+      configFile.setText(Model.serializeConfig(root.config))
+    })
+  }
+
+  function _resetSession() {
+    pollTimer.stop()
+    root._token = ""
+    root.user = null
+    root.serverVersion = ""
+    root.active = []
+    root.recent = []
+    root._failures = 0
+    root.errorText = ""
+  }
+
+  function _loadToken() {
+    var forUrl = root.config.url
+    runCommand(Model.secretToolArgs("lookup", forUrl), null, function(code, out, err) {
+      if (forUrl !== root.config.url) return
+      var token = String(out || "").trim()
+      if (code === 0 && token) {
+        root._token = token
+        root.status = "connecting"
+        root.refreshAll()
+        return
+      }
+      root._resetSession()
+      var problem = String(err || "").trim()
+      if (problem) {
+        root.status = "error"
+        root.errorText = "Keyring unavailable: " + problem
+      } else {
+        root.status = "unconfigured"
+      }
+    })
+  }
+
+  // ---------------------------------------------------------- request queue
+
+  // cb receives Model.classifyResponse(...) or { kind: "unconfigured", ... }.
+  function api(method, path, params, body, cb, dedupeKey) {
+    if (!root._token || !root.url) {
+      if (cb) cb({ kind: "unconfigured", status: 0, data: null, message: "Kimai is not set up" })
+      return
+    }
+    _enqueue(root.url, root._token, method, path, params, body, cb, dedupeKey)
+  }
+
+  function _enqueue(baseUrl, token, method, path, params, body, cb, dedupeKey) {
+    if (dedupeKey) {
+      for (var i = 0; i < root._queue.length; i++) if (root._queue[i].key === dedupeKey) return
+    }
+    root._queue.push({ baseUrl: baseUrl, token: token, method: method, path: path, params: params, body: body, cb: cb, key: dedupeKey || "" })
+    _pump()
+  }
+
+  function _pump() {
+    if (root._busy || root._queue.length === 0) return
+    var job = root._queue.shift()
+    root._busy = true
+    runCommand(Model.buildCurlArgs(job.method, Model.apiUrl(job.baseUrl, job.path, job.params), job.body),
+               Model.curlConfig(job.token),
+               function(code, out, err) {
+      root._busy = false
+      var result = Model.classifyResponse(code, out, err)
+      if (job.cb) job.cb(result)
+      root._pump()
+    })
+  }
+
+  // ---------------------------------------------------------- polling
+
+  Timer {
+    id: pollTimer
+    repeat: false
+    onTriggered: root.refresh()
+  }
+
+  Timer {
+    id: tickTimer
+    interval: 1000
+    repeat: true
+    running: root.active.length > 0
+    onTriggered: root.now = Date.now()
+  }
+
+  function _schedulePoll() {
+    if (!root._token || root.status === "unauthorized") return
+    pollTimer.interval = Model.nextPollSeconds(root._failures, root.config.pollSeconds) * 1000
+    pollTimer.restart()
+  }
+
+  function refresh() {
+    api("GET", "/timesheets/active", null, null, function(r) {
+      if (r.kind === "ok") {
+        root.active = Model.sortActive(r.data)
+        root.now = Date.now()
+        root.lastSync = root.now
+        root._failures = 0
+        root.status = "ok"
+        root.errorText = ""
+        if (root.active.length)
+          root.timezoneMismatch = Model.timezoneMismatch(root.active[0].begin, Model.localOffsetAt(root.now))
+      } else if (r.kind === "unauthorized") {
+        pollTimer.stop()
+        root.status = "unauthorized"
+        root.errorText = r.message
+        return
+      } else if (r.kind !== "unconfigured") {
+        root._failures++
+        root.status = root.lastSync > 0 ? "stale" : "error"
+        root.errorText = r.message
+      }
+      root._schedulePoll()
+    }, "active")
+  }
+
+  function loadRecent() {
+    api("GET", "/timesheets/recent", { size: 10 }, null, function(r) {
+      if (r.kind === "ok") {
+        root.recent = Array.isArray(r.data) ? r.data : []
+        if (!root.active.length && root.recent.length)
+          root.timezoneMismatch = Model.timezoneMismatch(root.recent[0].begin, Model.localOffsetAt(Date.now()))
+      }
+    }, "recent")
+  }
+
+  function refreshAll() {
+    refresh()
+    loadRecent()
+    api("GET", "/config/timesheet", null, null, function(r) {
+      if (r.kind === "ok" && r.data) root.trackingMode = String(r.data.trackingMode || "default")
+    }, "config")
+    if (!root.user) {
+      api("GET", "/users/me", null, null, function(r) { if (r.kind === "ok") root.user = r.data }, "me")
+      api("GET", "/version", null, null, function(r) {
+        if (r.kind === "ok" && r.data) root.serverVersion = String(r.data.version || "")
+      }, "version")
+    }
+  }
+
+  // ---------------------------------------------------------- mutations
+
+  function _afterMutation(cb) {
+    return function(r) {
+      if (r.kind === "ok") {
+        root.timesheetsChanged()
+        root.refresh()
+        root.loadRecent()
+      }
+      if (cb) cb(r)
+    }
+  }
+
+  // fields: { projectId, activityId, description, tags }
+  function start(fields, cb) {
+    var p = Model.startPayload(fields)
+    if (!p.ok) {
+      if (cb) cb({ kind: "invalid", status: 0, data: null, message: p.error })
+      return
+    }
+    api("POST", "/timesheets", null, p.payload, _afterMutation(cb))
+  }
+
+  function stop(id, cb) {
+    api("PATCH", "/timesheets/" + id + "/stop", null, null, _afterMutation(cb))
+  }
+
+  function stopAll(cb) {
+    var ids = root.active.map(function(e) { return e.id })
+    if (!ids.length) {
+      if (cb) cb({ kind: "ok", status: 200, data: null, message: "" })
+      return
+    }
+    var remaining = ids.length
+    var failed = null
+    ids.forEach(function(id) {
+      stop(id, function(r) {
+        if (r.kind !== "ok" && !failed) failed = r
+        remaining--
+        if (remaining === 0 && cb) cb(failed || r)
+      })
+    })
+  }
+
+  function restart(id, cb) {
+    api("PATCH", "/timesheets/" + id + "/restart", null, { copy: "all" }, _afterMutation(cb))
+  }
+
+  // payload: the `payload` of a successful Model.validateEdit()
+  function update(id, payload, cb) {
+    api("PATCH", "/timesheets/" + id, null, payload, _afterMutation(cb))
+  }
+
+  // Stop everything that runs, or restart the most recent entry when idle.
+  // Used by middle click and IPC, which have no UI, so failures notify.
+  function toggle() {
+    if (!root._token) return "unconfigured"
+    var report = function(r) { if (r.kind !== "ok") root.notify(r.message) }
+    if (root.active.length) {
+      stopAll(report)
+      return "stopping"
+    }
+    if (root.recent.length) {
+      restart(root.recent[0].id, report)
+      return "restarting"
+    }
+    return "nothing to restart"
+  }
+
+  // ---------------------------------------------------------- lookups
+
+  function loadDay(dateStr, cb) {
+    var range = Model.dayRange(dateStr)
+    api("GET", "/timesheets", { begin: range.begin, end: range.end, full: "true", size: 200, orderBy: "begin", order: "DESC" }, null, cb)
+  }
+
+  function projects(cb) {
+    api("GET", "/projects", { visible: 1 }, null, cb)
+  }
+
+  // Project activities plus global ones, merged by id.
+  function activities(projectId, cb) {
+    api("GET", "/activities", { project: projectId, visible: 1 }, null, function(own) {
+      if (own.kind !== "ok") { cb(own); return }
+      api("GET", "/activities", { globals: "true", visible: 1 }, null, function(globals) {
+        var merged = Model.mergeById(own.data, globals.kind === "ok" ? globals.data : [])
+        cb({ kind: "ok", status: 200, data: merged, message: "" })
+      })
+    })
+  }
+
+  function tags(cb) {
+    api("GET", "/tags", null, null, cb)
+  }
+
+  // ---------------------------------------------------------- connect
+
+  function connect(urlInput, token, cb) {
+    var n = Model.normalizeUrl(urlInput)
+    if (!n.ok) { cb({ kind: "invalid", message: n.error }); return }
+    var t = String(token || "").trim()
+    if (!t) { cb({ kind: "invalid", message: "Paste an API token" }); return }
+    var previousUrl = root.config.url
+    var previousStatus = root.status
+    root.status = "connecting"
+    _enqueue(n.url, t, "GET", "/users/me", null, null, function(me) {
+      if (me.kind !== "ok") {
+        root.status = previousStatus
+        cb(me.kind === "unauthorized" ? { kind: me.kind, message: "Kimai rejected this token" } : me)
+        return
+      }
+      _enqueue(n.url, t, "GET", "/version", null, null, function(ver) {
+        runCommand(Model.secretToolArgs("store", n.url), t, function(code, out, err) {
+          if (code !== 0) {
+            root.status = previousStatus
+            cb({ kind: "error", message: "Keyring unavailable: " + (String(err || "").trim() || ("secret-tool exit " + code)) })
+            return
+          }
+          if (previousUrl && previousUrl !== n.url) runCommand(Model.secretToolArgs("clear", previousUrl), null, null)
+          root._resetSession()
+          root._token = t
+          root.user = me.data
+          root.serverVersion = ver.kind === "ok" && ver.data ? String(ver.data.version || "") : ""
+          root._writeConfig({ url: n.url, pollSeconds: root.config.pollSeconds, labelMaxWidth: root.config.labelMaxWidth })
+          root.refreshAll()
+          cb({ kind: "ok", message: "Connected as " + Model.userLabel(me.data) + (root.serverVersion ? " · Kimai " + root.serverVersion : "") })
+        })
+      })
+    })
+  }
+
+  function disconnect(cb) {
+    var forUrl = root.config.url
+    root._resetSession()
+    root.status = "unconfigured"
+    if (!forUrl) { if (cb) cb(); return }
+    runCommand(Model.secretToolArgs("clear", forUrl), null, function() { if (cb) cb() })
+  }
+
+  // values: { pollSeconds?, labelMaxWidth? }
+  function savePreferences(values) {
+    var next = { url: root.config.url, pollSeconds: root.config.pollSeconds, labelMaxWidth: root.config.labelMaxWidth }
+    for (var key in values) next[key] = values[key]
+    _writeConfig(next)
+    _schedulePoll()
+  }
+
+  // ---------------------------------------------------------- IPC
+
+  IpcHandler {
+    target: "kimai"
+
+    function toggle(): string { return root.toggle() }
+    function stop(): string { root.stopAll(function(r) { if (r.kind !== "ok") root.notify(r.message) }); return "stopping" }
+    function restartLast(): string {
+      if (!root.recent.length) return "nothing to restart"
+      root.restart(root.recent[0].id, function(r) { if (r.kind !== "ok") root.notify(r.message) })
+      return "restarting"
+    }
+    function refresh(): string { root.refreshAll(); return "refreshing" }
+    function status(): string { return JSON.stringify(Model.statusSnapshot(root.status, root.active, Date.now(), root.errorText)) }
+  }
+
+  Component.onCompleted: {
+    runCommand(["mkdir", "-p", root.configDir], null, function() { configFile.reload() })
+  }
+}

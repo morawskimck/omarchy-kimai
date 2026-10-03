@@ -433,6 +433,16 @@ function userLabel(user) {
   return String(user.alias || user.username || "")
 }
 
+// Short text for the popup header.
+function statusLabel(status, user) {
+  if (status === "ok") return userLabel(user) || "Connected"
+  if (status === "unconfigured") return "Not connected"
+  if (status === "connecting") return "Connecting…"
+  if (status === "stale") return "Offline"
+  if (status === "unauthorized") return "Token rejected"
+  return "Error"
+}
+
 function statusSnapshot(status, active, nowMs, errorText) {
   var list = active || []
   var parts = barParts(list, nowMs)
