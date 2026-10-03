@@ -60,10 +60,16 @@ test("tags: options are unique and sorted; extra comma text is merged in", () =>
   same(M.mergeTags([], ""), [])
 })
 
-test("prefillFromRecent copies the last working set", () => {
-  same(M.prefillFromRecent([]), { projectId: "", activityId: "", description: "", tags: [] })
+test("prefillFromRecent copies the last working set, with names for the pickers", () => {
+  same(M.prefillFromRecent([]), { projectId: "", activityId: "", description: "", tags: [], projectLabel: "", activityLabel: "" })
   same(M.prefillFromRecent([entry({ description: "PR", tags: ["review"] })]),
-       { projectId: "2", activityId: "3", description: "PR", tags: ["review"] })
+       { projectId: "2", activityId: "3", description: "PR", tags: ["review"], projectLabel: "Website", activityLabel: "Code review" })
+})
+
+test("prefillFromEntry fills the edit form from one entry", () => {
+  same(M.prefillFromEntry(entry({ description: "Fix", tags: ["b", "a"] })),
+       { projectId: "2", activityId: "3", description: "Fix", tags: ["a", "b"], projectLabel: "Website", activityLabel: "Code review" })
+  same(M.prefillFromEntry(null), { projectId: "", activityId: "", description: "", tags: [], projectLabel: "", activityLabel: "" })
 })
 
 test("startPayload requires project and activity", () => {

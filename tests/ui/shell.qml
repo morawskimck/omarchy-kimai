@@ -96,6 +96,7 @@ ShellRoot {
   MockService { id: daySvc; day: [harness.entry(11, 300, 210, "Planning", []), harness.entry(7, 83, null, "Fix login bug", [])] }
   MockService { id: editSvc }
   MockService { id: punchSvc; trackingMode: "punch" }
+  MockService { id: slowSvc; slowLookups: true }
   MockService { id: settingsSvc; hasToken: false; status: "unconfigured"; user: null }
   MockService {
     id: barSvc
@@ -188,6 +189,7 @@ ShellRoot {
           width: 400; height: punchForm.implicitHeight + 24; color: Color.popups.background
           EditForm { id: punchForm; x: 12; y: 12; width: 376; svc: punchSvc }
         }
+        EditForm { id: slowForm; width: 376; svc: slowSvc }
       }
 
       Column {
@@ -303,6 +305,12 @@ ShellRoot {
           JSON.stringify(updated))
     check("save keeps the entry's tags", updated !== null && updated.payload.tags === "billable", JSON.stringify(updated))
     check("successful save closes the form", harness.editClosed)
+
+    slowForm.entry = finished
+    var dropdowns = harness.walk(slowForm, []).filter(function(o) { return typeof o.currentLabel === "function" && o.options !== undefined })
+    check("edit form shows project and activity names before the lists load",
+          dropdowns.length >= 2 && dropdowns[0].currentLabel() === "Website" && dropdowns[1].currentLabel() === "Code review",
+          dropdowns.map(function(d) { return d.currentLabel() }).join(" / "))
 
     punchForm.entry = finished
     var punchBegin = harness.field(punchForm, "09:00")

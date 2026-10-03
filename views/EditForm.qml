@@ -26,12 +26,7 @@ Column {
     root.message = ""
     beginField.text = Model.wallTime(root.entry.begin)
     endField.text = root.entry.end ? Model.wallTime(root.entry.end) : ""
-    fields.reset({
-      projectId: root.entry.project ? String(root.entry.project.id) : "",
-      activityId: root.entry.activity ? String(root.entry.activity.id) : "",
-      description: String(root.entry.description || ""),
-      tags: Model.tagsOf(root.entry)
-    })
+    fields.reset(Model.prefillFromEntry(root.entry))
   }
 
   function save() {

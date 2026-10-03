@@ -390,15 +390,22 @@ function tagsOf(entry) {
   return tagOptions(entry && entry.tags ? entry.tags : [])
 }
 
-function prefillFromRecent(recent) {
-  var r = recent && recent.length ? recent[0] : null
-  if (!r) return { projectId: "", activityId: "", description: "", tags: [] }
+// Form fields for one entry. The labels let the pickers show names right away,
+// before Kimai's project and activity lists arrive.
+function prefillFromEntry(e) {
+  if (!e) return { projectId: "", activityId: "", description: "", tags: [], projectLabel: "", activityLabel: "" }
   return {
-    projectId: r.project ? String(r.project.id) : "",
-    activityId: r.activity ? String(r.activity.id) : "",
-    description: String(r.description || ""),
-    tags: tagsOf(r)
+    projectId: e.project ? String(e.project.id) : "",
+    activityId: e.activity ? String(e.activity.id) : "",
+    description: String(e.description || ""),
+    tags: tagsOf(e),
+    projectLabel: e.project && e.project.name ? String(e.project.name) : "",
+    activityLabel: e.activity && e.activity.name ? String(e.activity.name) : ""
   }
+}
+
+function prefillFromRecent(recent) {
+  return prefillFromEntry(recent && recent.length ? recent[0] : null)
 }
 
 function startPayload(f) {

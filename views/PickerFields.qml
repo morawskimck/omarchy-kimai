@@ -24,21 +24,31 @@ Column {
 
   spacing: Style.space(8)
 
-  // prefill: { projectId, activityId, description, tags }
+  // prefill: Model.prefillFromEntry(...). Until Kimai's lists arrive the
+  // pickers show the prefill's names instead of bare ids.
   function reset(prefill) {
     root.projectId = prefill.projectId
     root.activityId = prefill.activityId
     root.selectedTags = prefill.tags
     descriptionField.text = prefill.description
     newTagsField.text = ""
+    root.projectOptions = root.withOption(root.projectOptions, prefill.projectId, prefill.projectLabel)
+    root.activityOptions = root.withOption([], prefill.activityId, prefill.activityLabel)
     if (!root.svc) return
     root.svc.projects(function(r) { if (r.kind === "ok") root.projectOptions = Model.toOptions(r.data) })
     root.svc.tags(function(r) { if (r.kind === "ok") root.tagOptions = Model.tagOptions(r.data) })
-    root.loadActivities()
+    root.loadActivities(false)
   }
 
-  function loadActivities() {
-    root.activityOptions = []
+  function withOption(options, value, label) {
+    if (!value || !label) return options
+    for (var i = 0; i < options.length; i++) if (options[i].value === value) return options
+    return options.concat([{ value: value, label: label, description: "" }])
+  }
+
+  // clear: drop the current list first (the project changed, so it is stale).
+  function loadActivities(clear) {
+    if (clear) root.activityOptions = []
     if (!root.svc || !root.projectId) return
     var forProject = root.projectId
     root.svc.activities(forProject, function(r) {
@@ -56,7 +66,7 @@ Column {
     onChanged: function(value) {
       root.projectId = value
       root.activityId = ""
-      root.loadActivities()
+      root.loadActivities(true)
     }
   }
 

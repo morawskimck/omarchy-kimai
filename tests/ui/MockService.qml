@@ -23,6 +23,8 @@ Item {
   property bool timezoneMismatch: false
   property var day: []
   property var calls: []
+  // When true, picker lookups answer after 300 ms, like a busy request queue.
+  property bool slowLookups: false
 
   signal timesheetsChanged()
   signal refreshing()
@@ -34,8 +36,14 @@ Item {
   function ok(data) { return { kind: "ok", status: 200, data: data, message: "" } }
 
   function refreshAll() { log("refreshAll"); root.refreshing() }
-  function projects(cb) { cb(ok([{ id: 2, name: "Website", parentTitle: "Acme" }, { id: 4, name: "App", parentTitle: "ACME" }])) }
-  function activities(projectId, cb) { log("activities:" + projectId); cb(ok([{ id: 3, name: "Code review", parentTitle: "Website" }, { id: 9, name: "Meetings", parentTitle: "" }])) }
+  function later(fn) {
+    if (!root.slowLookups) { fn(); return }
+    var t = Qt.createQmlObject("import QtQuick; Timer { interval: 300 }", root)
+    t.triggered.connect(function() { t.destroy(); fn() })
+    t.start()
+  }
+  function projects(cb) { later(function() { cb(ok([{ id: 2, name: "Website", parentTitle: "Acme" }, { id: 4, name: "App", parentTitle: "ACME" }])) }) }
+  function activities(projectId, cb) { log("activities:" + projectId); later(function() { cb(ok([{ id: 3, name: "Code review", parentTitle: "Website" }, { id: 9, name: "Meetings", parentTitle: "" }])) }) }
   function tags(cb) { cb(ok(["billable", "review"])) }
   function loadDay(date, cb) { log("loadDay:" + date); cb(ok(root.day)) }
   function start(fields, cb) { log({ start: fields }); cb(ok({})) }
