@@ -236,3 +236,221 @@ function secretToolArgs(action, url) {
   if (action === "store") return ["secret-tool", "store", "--label=Omarchy Kimai (" + url + ")"].concat(attrs)
   return ["secret-tool", action].concat(attrs)
 }
+
+// ---------------------------------------------------------------- view logic
+
+function sortActive(list) {
+  var arr = Array.isArray(list) ? list.slice() : []
+  arr.sort(function(a, b) { return parseKimaiDate(b.begin) - parseKimaiDate(a.begin) })
+  return arr
+}
+
+function activityName(entry) {
+  if (entry && entry.activity && entry.activity.name) return String(entry.activity.name)
+  if (entry && entry.project && entry.project.name) return String(entry.project.name)
+  return "Timer"
+}
+
+function projectLine(entry) {
+  var p = entry && entry.project ? entry.project : null
+  if (!p || !p.name) return ""
+  return String(p.name) + (p.customer && p.customer.name ? " · " + p.customer.name : "")
+}
+
+// Bar label pieces; the widget elides `name` to labelMaxWidth on its own.
+function barParts(active, nowMs) {
+  if (!active || !active.length) return { elapsed: "", name: "", extra: "" }
+  var newest = active[0]
+  return {
+    elapsed: formatElapsed(elapsedSeconds(newest.begin, nowMs)),
+    name: activityName(newest),
+    extra: active.length > 1 ? " +" + (active.length - 1) : ""
+  }
+}
+
+function tooltip(status, active, nowMs, lastSync, errorText) {
+  if (status === "unconfigured") return "Kimai · Set up Kimai"
+  if (status === "unauthorized" || status === "error") return "Kimai · " + (errorText || "Error")
+  var lines = []
+  var list = active || []
+  if (!list.length) lines.push("Kimai · No timer running")
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i]
+    if (i > 0) lines.push("")
+    lines.push(activityName(e) + " — " + formatElapsed(elapsedSeconds(e.begin, nowMs)))
+    var pl = projectLine(e)
+    if (pl) lines.push(pl)
+    if (e.description) lines.push(String(e.description))
+    lines.push("Started " + wallTime(e.begin))
+  }
+  if (status === "stale") lines.push("Offline · last sync " + (lastSync ? formatClock(lastSync) : "never"))
+  return lines.join("\n")
+}
+
+function entrySeconds(entry, nowMs) {
+  if (!entry.end) return elapsedSeconds(entry.begin, nowMs)
+  if (isFinite(Number(entry.duration)) && entry.duration !== null) return Math.max(0, Number(entry.duration))
+  return Math.max(0, Math.round((parseKimaiDate(entry.end) - parseKimaiDate(entry.begin)) / 1000))
+}
+
+function entryRow(entry, nowMs) {
+  var running = !entry.end
+  return {
+    id: entry.id,
+    running: running,
+    range: wallTime(entry.begin) + "–" + (running ? "now" : wallTime(entry.end)),
+    duration: formatElapsed(entrySeconds(entry, nowMs)),
+    title: activityName(entry) + (entry.project && entry.project.name ? " · " + entry.project.name : ""),
+    description: String(entry.description || "")
+  }
+}
+
+function dayTotalSeconds(entries, nowMs) {
+  var total = 0
+  for (var i = 0; i < (entries || []).length; i++) total += entrySeconds(entries[i], nowMs)
+  return total
+}
+
+// SearchableDropdown options. `parentTitle` is the customer (projects) or the
+// project (activities); the dropdown also searches descriptions.
+function toOptions(list) {
+  var out = []
+  for (var i = 0; i < (list || []).length; i++) {
+    var item = list[i]
+    if (!item || item.id === undefined || item.id === null) continue
+    out.push({ value: String(item.id), label: String(item.name || ("#" + item.id)), description: String(item.parentTitle || "") })
+  }
+  out.sort(function(a, b) { return a.label.localeCompare(b.label) })
+  return out
+}
+
+function mergeById(a, b) {
+  var seen = {}
+  var out = []
+  var all = (a || []).concat(b || [])
+  for (var i = 0; i < all.length; i++) {
+    if (!all[i] || seen[all[i].id]) continue
+    seen[all[i].id] = true
+    out.push(all[i])
+  }
+  return out
+}
+
+function tagOptions(names) {
+  var seen = {}
+  var out = []
+  for (var i = 0; i < (names || []).length; i++) {
+    var n = typeof names[i] === "object" && names[i] ? names[i].name : names[i]
+    n = String(n || "").trim()
+    if (!n || seen[n]) continue
+    seen[n] = true
+    out.push(n)
+  }
+  out.sort(function(a, b) { return a.localeCompare(b) })
+  return out
+}
+
+function mergeTags(selected, extraText) {
+  var extra = String(extraText || "").split(",")
+  return tagOptions((selected || []).concat(extra))
+}
+
+function tagsOf(entry) {
+  return tagOptions(entry && entry.tags ? entry.tags : [])
+}
+
+function prefillFromRecent(recent) {
+  var r = recent && recent.length ? recent[0] : null
+  if (!r) return { projectId: "", activityId: "", description: "", tags: [] }
+  return {
+    projectId: r.project ? String(r.project.id) : "",
+    activityId: r.activity ? String(r.activity.id) : "",
+    description: String(r.description || ""),
+    tags: tagsOf(r)
+  }
+}
+
+function startPayload(f) {
+  if (!f || !f.projectId || !f.activityId) return { ok: false, error: "Pick a project and an activity", payload: null }
+  return {
+    ok: true,
+    error: "",
+    payload: {
+      project: Number(f.projectId),
+      activity: Number(f.activityId),
+      description: String(f.description || "").trim(),
+      tags: (f.tags || []).join(",")
+    }
+  }
+}
+
+function parseHHMM(s) {
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(s || "").trim())
+  if (!m) return null
+  var h = +m[1]
+  var min = +m[2]
+  if (h > 23 || min > 59) return null
+  return pad2(h) + ":" + pad2(min)
+}
+
+// f: { entry, projectId, activityId, description, tags, beginTime, endTime, allowTimes }
+// Times are only sent when they changed, so untouched seconds and dates stay
+// exactly as Kimai stored them.
+function validateEdit(f) {
+  if (!f || !f.projectId || !f.activityId) return { ok: false, error: "Pick a project and an activity", payload: null }
+  var payload = {
+    project: Number(f.projectId),
+    activity: Number(f.activityId),
+    description: String(f.description || "").trim(),
+    tags: (f.tags || []).join(",")
+  }
+  if (f.allowTimes && f.entry) {
+    var b = parseHHMM(f.beginTime)
+    if (!b) return { ok: false, error: "Start time must look like 09:30", payload: null }
+    var beginStamp = b === wallTime(f.entry.begin) ? wallStamp(f.entry.begin) : wallDate(f.entry.begin) + "T" + b + ":00"
+    if (b !== wallTime(f.entry.begin)) payload.begin = beginStamp
+    if (f.entry.end) {
+      var e = parseHHMM(f.endTime)
+      if (!e) return { ok: false, error: "End time must look like 17:00", payload: null }
+      var endStamp = e === wallTime(f.entry.end) ? wallStamp(f.entry.end) : wallDate(f.entry.end) + "T" + e + ":00"
+      if (e !== wallTime(f.entry.end)) payload.end = endStamp
+      if (endStamp <= beginStamp) return { ok: false, error: "End must be after start", payload: null }
+    }
+  }
+  return { ok: true, error: "", payload: payload }
+}
+
+function isPunchMode(mode) {
+  return mode === "punch"
+}
+
+function editUrl(baseUrl, id) {
+  return baseUrl + "/en/timesheet/" + id + "/edit"
+}
+
+function userLabel(user) {
+  if (!user) return ""
+  return String(user.alias || user.username || "")
+}
+
+function statusSnapshot(status, active, nowMs, errorText) {
+  var list = active || []
+  var parts = barParts(list, nowMs)
+  var timers = []
+  for (var i = 0; i < list.length; i++) {
+    timers.push({
+      id: list[i].id,
+      activity: activityName(list[i]),
+      project: projectLine(list[i]),
+      begin: list[i].begin,
+      elapsed: formatElapsed(elapsedSeconds(list[i].begin, nowMs))
+    })
+  }
+  return {
+    status: status,
+    running: list.length > 0,
+    label: parts.elapsed ? parts.elapsed + " · " + parts.name + parts.extra : "",
+    error: errorText || "",
+    timers: timers
+  }
+}
