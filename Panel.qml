@@ -5,7 +5,8 @@ import "Model.js" as Model
 import "views"
 
 // The popup. BarWidget.qml loads one per monitor and injects bar, anchorItem,
-// hostWidget and svc.
+// hostWidget and svc. Tabs: Timer · Settings; EditForm replaces the
+// tab content while an entry is being edited.
 Panel {
   id: root
   moduleName: Model.ID
@@ -16,10 +17,21 @@ Panel {
   property var svc: null
   readonly property var barIdentity: hostWidget || root
 
+  property string tab: "timer"
+  property var editing: null
   readonly property bool configured: svc !== null && svc.status !== "unconfigured"
-  readonly property bool textEditing: settingsView.textEditing
+  readonly property bool textEditing: (timerView.visible && timerView.textEditing)
+    || (settingsView.visible && settingsView.textEditing)
+    || (editForm.visible && editForm.textEditing)
 
-  onOpenedChanged: if (opened && configured && svc) svc.refreshAll()
+  onOpenedChanged: {
+    if (!opened) { editing = null; return }
+    var needsSetup = !configured || svc.status === "unauthorized" || svc.status === "error"
+    if (needsSetup) tab = "settings"
+    if (configured) svc.refreshAll()
+  }
+
+  function edit(entry) { root.editing = entry }
 
   KeyboardPanel {
     id: panel
@@ -35,7 +47,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.textEditing
-      onCloseRequested: root.close()
+      onCloseRequested: root.editing ? root.editing = null : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Column {
@@ -64,12 +76,40 @@ Panel {
           }
         }
 
+        ButtonGroup {
+          visible: root.editing === null
+          options: [
+            { value: "timer", label: "Timer" },
+            { value: "settings", label: "Settings" }
+          ]
+          value: root.tab
+          onChanged: function(value) { root.tab = value }
+        }
+
         PanelSeparator { width: parent.width }
+
+        TimerView {
+          id: timerView
+          width: parent.width
+          svc: root.svc
+          visible: root.editing === null && root.tab === "timer" && root.configured
+          onEditRequested: function(entry) { root.edit(entry) }
+        }
 
         SettingsView {
           id: settingsView
           width: parent.width
           svc: root.svc
+          visible: root.editing === null && (root.tab === "settings" || !root.configured)
+        }
+
+        EditForm {
+          id: editForm
+          width: parent.width
+          svc: root.svc
+          entry: root.editing
+          visible: root.editing !== null
+          onClosed: root.editing = null
         }
       }
     }
