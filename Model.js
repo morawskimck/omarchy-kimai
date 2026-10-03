@@ -138,3 +138,101 @@ function timezoneMismatch(kimaiDate, localOffsetMinutes) {
   var offset = kimaiOffsetMinutes(kimaiDate)
   return offset !== null && offset !== localOffsetMinutes
 }
+
+// ---------------------------------------------------------------- transport
+
+function queryString(params) {
+  var parts = []
+  var keys = Object.keys(params || {})
+  for (var i = 0; i < keys.length; i++) {
+    var v = params[keys[i]]
+    if (v === undefined || v === null || v === "") continue
+    parts.push(encodeURIComponent(keys[i]) + "=" + encodeURIComponent(String(v)))
+  }
+  return parts.length ? "?" + parts.join("&") : ""
+}
+
+function apiUrl(baseUrl, path, params) {
+  return baseUrl + "/api" + path + queryString(params)
+}
+
+// The token goes to curl on stdin as a config line, never as an argument,
+// so it does not show up in `ps`.
+function curlConfig(token) {
+  var t = String(token || "").replace(/[\r\n]/g, "")
+  return 'header = "Authorization: Bearer ' + t.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"\n'
+}
+
+function buildCurlArgs(method, url, body) {
+  var args = ["curl", "-sS", "--max-time", "15", "--config", "-", "-X", String(method || "GET"),
+              "-H", "Accept: application/json", "-w", "\n%{http_code}"]
+  if (body !== undefined && body !== null)
+    args.push("-H", "Content-Type: application/json", "--data-binary", JSON.stringify(body))
+  args.push(url)
+  return args
+}
+
+function parseCurlOutput(stdout) {
+  var text = String(stdout || "")
+  var cut = text.lastIndexOf("\n")
+  var status = parseInt((cut === -1 ? text : text.slice(cut + 1)).trim(), 10)
+  return { status: isFinite(status) ? status : 0, body: cut === -1 ? "" : text.slice(0, cut) }
+}
+
+function networkMessage(exitCode, stderr) {
+  var lines = String(stderr || "").trim().split("\n")
+  var last = lines[lines.length - 1]
+  return last ? last.replace(/^curl: \(\d+\)\s*/, "") : "Network error (curl exit " + exitCode + ")"
+}
+
+function extractError(data, fallback) {
+  var messages = []
+  function walk(node) {
+    if (!node || typeof node !== "object") return
+    if (Array.isArray(node.errors)) {
+      for (var i = 0; i < node.errors.length; i++) messages.push(String(node.errors[i]))
+    } else if (node.errors && typeof node.errors === "object") {
+      walk(node.errors)
+    }
+    if (node.children && typeof node.children === "object") {
+      var keys = Object.keys(node.children)
+      for (var k = 0; k < keys.length; k++) walk(node.children[keys[k]])
+    }
+  }
+  walk(data)
+  if (messages.length) return messages.join(" ")
+  if (data && typeof data === "object" && data.message) return String(data.message)
+  return fallback || "Kimai rejected the request"
+}
+
+// Result shape every caller of Service.api() receives:
+// { kind: ok|invalid|unauthorized|notfound|server|network, status, data, message }
+function classifyResponse(exitCode, stdout, stderr) {
+  if (exitCode !== 0) return { kind: "network", status: 0, data: null, message: networkMessage(exitCode, stderr) }
+  var res = parseCurlOutput(stdout)
+  var data = null
+  var parsed = true
+  if (res.body.trim() !== "") {
+    try { data = JSON.parse(res.body) } catch (e) { parsed = false }
+  }
+  if (res.status >= 200 && res.status < 300) {
+    if (!parsed) return { kind: "server", status: res.status, data: null, message: "Unexpected response from the server" }
+    return { kind: "ok", status: res.status, data: data, message: "" }
+  }
+  if (res.status === 401 || res.status === 403) return { kind: "unauthorized", status: res.status, data: data, message: "Kimai rejected the API token" }
+  if (res.status === 400) return { kind: "invalid", status: 400, data: data, message: extractError(data) }
+  if (res.status === 404) return { kind: "notfound", status: 404, data: data, message: extractError(data, "Not found") }
+  return { kind: "server", status: res.status, data: data, message: "Kimai answered HTTP " + (res.status || "?") }
+}
+
+// Normal interval while healthy; doubling back-off from 30 s, capped at 300 s.
+function nextPollSeconds(failures, pollSeconds) {
+  if (!failures) return pollSeconds
+  return Math.max(pollSeconds, Math.min(300, 30 * Math.pow(2, failures - 1)))
+}
+
+function secretToolArgs(action, url) {
+  var attrs = ["application", KEYRING_APP, "url", url]
+  if (action === "store") return ["secret-tool", "store", "--label=Omarchy Kimai (" + url + ")"].concat(attrs)
+  return ["secret-tool", action].concat(attrs)
+}
