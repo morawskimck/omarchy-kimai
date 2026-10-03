@@ -5,7 +5,7 @@ import "Model.js" as Model
 import "views"
 
 // The popup. BarWidget.qml loads one per monitor and injects bar, anchorItem,
-// hostWidget and svc. Tabs: Timer · Settings; EditForm replaces the
+// hostWidget and svc. Tabs: Timer · Entries · Settings; EditForm replaces the
 // tab content while an entry is being edited.
 Panel {
   id: root
@@ -21,6 +21,7 @@ Panel {
   property var editing: null
   readonly property bool configured: svc !== null && svc.status !== "unconfigured"
   readonly property bool textEditing: (timerView.visible && timerView.textEditing)
+    || (entriesView.visible && entriesView.textEditing)
     || (settingsView.visible && settingsView.textEditing)
     || (editForm.visible && editForm.textEditing)
 
@@ -80,6 +81,7 @@ Panel {
           visible: root.editing === null
           options: [
             { value: "timer", label: "Timer" },
+            { value: "entries", label: "Entries" },
             { value: "settings", label: "Settings" }
           ]
           value: root.tab
@@ -93,6 +95,14 @@ Panel {
           width: parent.width
           svc: root.svc
           visible: root.editing === null && root.tab === "timer" && root.configured
+          onEditRequested: function(entry) { root.edit(entry) }
+        }
+
+        EntriesView {
+          id: entriesView
+          width: parent.width
+          svc: root.svc
+          visible: root.editing === null && root.tab === "entries" && root.configured
           onEditRequested: function(entry) { root.edit(entry) }
         }
 
