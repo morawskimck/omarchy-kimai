@@ -1,5 +1,7 @@
 # Kimai for Omarchy
 
+![The bar label and the Timer, Entries and Edit views](preview.png)
+
 An unofficial [Kimai](https://www.kimai.org) time-tracking widget for the
 [Omarchy](https://omarchy.org) bar. It shows the running timer in the bar and
 lets you start, stop, restart and edit timesheets from a popup. It works with
@@ -68,8 +70,9 @@ o.bind("SUPER + ALT + SHIFT + T", "Kimai: open", "omarchy-shell shell toggle io.
 ## Requirements
 
 Omarchy 4 (tested on 4.0.4 with Quickshell 0.3.1), and Kimai 2 with API tokens
-(tested on 2.67.0). The plugin uses `curl`, `secret-tool` and `xdg-open`, all
-of which Omarchy ships.
+(tested on 2.67.0). The plugin uses `curl`, `secret-tool` (libsecret),
+`xdg-open` and Omarchy's own `omarchy-notification-send`, all of which Omarchy
+ships. It needs no extra packages and no privileges.
 
 ## Known limits
 
@@ -79,6 +82,8 @@ of which Omarchy ships.
 - New tags typed in the popup are created in Kimai before the entry is saved,
   so your Kimai account needs permission to create tags. Without it, the save
   stops with a message instead of silently dropping the tag.
+- The server's TLS certificate must be valid (self-signed certificates are
+  rejected by `curl`).
 - Times are shown as Kimai stores them, in your Kimai profile's timezone.
   Settings warns you if that differs from your computer's timezone.
 
@@ -90,6 +95,7 @@ cd ~/Work/omarchy-kimai
 scripts/check.sh      # unit tests (node), qmllint, UI + service tests, manifest validation
 scripts/ui-test.sh /tmp/kimai-ui   # UI tests only; keeps the screenshots
 scripts/service-test.sh            # Service.qml against a mock Kimai (no real server or keyring)
+scripts/preview.sh                 # regenerate preview.png with demo data
 scripts/dev-link.sh   # symlink into ~/.config/omarchy/plugins and rescan
 journalctl --user -t omarchy-shell -f   # QML errors and console.log
 ```

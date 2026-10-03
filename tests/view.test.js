@@ -147,3 +147,11 @@ test("sortRecent puts the most recently used entry first, like Kimai's own 'high
   same(M.sortRecent(list).map(e => e.id), [10, 9, 8, 2])
   same(M.sortRecent(null), [])
 })
+
+test("entryLabel lines up the columns of the day list (monospace font)", () => {
+  const done = entry({ end: "2026-10-03T10:30:00+0200", duration: 5400 })
+  const long = entry({ begin: "2026-10-03T00:00:00+0200", end: "2026-10-03T12:04:00+0200", duration: 43440 })
+  assert.equal(M.entryLabel(entry(), NOW), "09:00–now     1:23   Code review · Website")
+  assert.equal(M.entryLabel(done, NOW), "09:00–10:30   1:30   Code review · Website")
+  assert.equal(M.entryLabel(long, NOW), "00:00–12:04  12:04   Code review · Website")
+})

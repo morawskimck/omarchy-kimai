@@ -327,6 +327,16 @@ function entryRow(entry, nowMs) {
   }
 }
 
+// One day-list line with aligned columns: range, duration, title.
+function entryLabel(entry, nowMs) {
+  var row = entryRow(entry, nowMs)
+  var range = row.range
+  while (range.length < 11) range += " "
+  var duration = row.duration
+  while (duration.length < 5) duration = " " + duration
+  return range + "  " + duration + "   " + row.title
+}
+
 function dayTotalSeconds(entries, nowMs) {
   var total = 0
   for (var i = 0; i < (entries || []).length; i++) total += entrySeconds(entries[i], nowMs)

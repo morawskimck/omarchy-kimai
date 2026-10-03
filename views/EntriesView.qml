@@ -97,7 +97,7 @@ Column {
           readonly property var row: Model.entryRow(modelData, root.now)
           width: list.width
           leftAlign: true
-          text: row.range + "   " + row.duration + "   " + row.title
+          text: Model.entryLabel(modelData, root.now)
           tooltipText: row.description
           onClicked: root.editRequested(modelData)
         }
