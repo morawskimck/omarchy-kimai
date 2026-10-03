@@ -76,6 +76,9 @@ of which Omarchy ships.
 - Deleting entries, moving an entry to another date, and creating customers,
   projects or activities are left to the Kimai web UI. "Open in Kimai" in the
   edit form takes you there.
+- New tags typed in the popup are created in Kimai before the entry is saved,
+  so your Kimai account needs permission to create tags. Without it, the save
+  stops with a message instead of silently dropping the tag.
 - Times are shown as Kimai stores them, in your Kimai profile's timezone.
   Settings warns you if that differs from your computer's timezone.
 

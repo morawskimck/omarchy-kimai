@@ -78,3 +78,11 @@ test("secretToolArgs addresses one entry per server URL", () => {
   same(M.secretToolArgs("store", "https://k.example"),
        ["secret-tool", "store", "--label=Omarchy Kimai (https://k.example)", "application", "omarchy-kimai", "url", "https://k.example"])
 })
+
+test("extractError understands the 400 body captured from Kimai in Task 1", () => {
+  const body = require("./fixtures/error-400.json")
+  const message = M.extractError(body)
+  assert.notEqual(message, "Kimai rejected the request")
+  assert.notEqual(message, "Validation Failed")
+  assert.ok(message.length > 0)
+})

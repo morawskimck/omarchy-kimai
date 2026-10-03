@@ -6,6 +6,8 @@
 const http = require("node:http")
 
 let token = "test-token"
+const tagNames = ["alpha", "review"]
+let tagsLocked = false // POST /__tagsLocked {"locked": true}: refuse tag creation like a user without create_tag
 let mode = "ok"
 let nextId = 100
 const log = []
@@ -41,10 +43,16 @@ function stop(t) {
   t.duration = 60
 }
 
+// Kimai's timesheet API silently drops tag names that don't exist yet.
+function knownTags(text) {
+  return String(text || "").split(",").map(s => s.trim()).filter(Boolean)
+    .map(n => tagNames.find(t => t.toLowerCase() === n.toLowerCase())).filter(Boolean)
+}
+
 function create(fields) {
   sheets.filter(t => !t.end).forEach(stop) // activeEntriesHardLimit = 1
   const t = { id: nextId++, begin: stamp(Date.now()), end: null, duration: 0,
-              description: fields.description || "", tags: fields.tags ? String(fields.tags).split(",").filter(Boolean) : [],
+              description: fields.description || "", tags: knownTags(fields.tags),
               activity: Number(fields.activity), project: Number(fields.project) }
   sheets.push(t)
   return t
@@ -88,7 +96,7 @@ function route(req, res, url, body) {
     if (end && end <= begin)
       return json(res, 400, { code: 400, message: "Validation Failed", errors: { children: { end: { errors: ["End date must not be earlier then start date."] } } } })
     if (f.description !== undefined) t.description = f.description
-    if (f.tags !== undefined) t.tags = String(f.tags).split(",").filter(Boolean)
+    if (f.tags !== undefined) t.tags = knownTags(f.tags)
     if (f.begin) t.begin = f.begin + stamp(Date.now()).slice(19)
     if (f.end) t.end = f.end + stamp(Date.now()).slice(19)
     return json(res, 200, t)
@@ -98,7 +106,15 @@ function route(req, res, url, body) {
     if (url.searchParams.get("globals") === "true") return json(res, 200, [{ id: 9, name: "Meetings", parentTitle: null, project: null }])
     return json(res, 200, [{ id: 3, name: "Code review", parentTitle: "Website", project: 2 }])
   }
-  if (m === "GET" && p === "/api/tags") return json(res, 200, ["alpha", "review"])
+  if (m === "GET" && p === "/api/tags") return json(res, 200, tagNames)
+  if (m === "POST" && p === "/api/tags") {
+    if (tagsLocked) return json(res, 403, { code: 403, message: "Access denied." })
+    const name = String(JSON.parse(body || "{}").name || "").trim()
+    if (!name || tagNames.some(t => t.toLowerCase() === name.toLowerCase()))
+      return json(res, 400, { code: 400, message: "Validation Failed", errors: { children: { name: { errors: ["This value is already used."] } } } })
+    tagNames.push(name)
+    return json(res, 200, { id: tagNames.length, name, visible: true })
+  }
   return json(res, 404, { message: "Not found" })
 }
 
@@ -106,6 +122,7 @@ function control(req, res, url, body) {
   if (url.pathname === "/__mode") { mode = JSON.parse(body).mode; return json(res, 200, { mode }) }
   if (url.pathname === "/__token") { token = JSON.parse(body).token; return json(res, 200, {}) }
   if (url.pathname === "/__log") return json(res, 200, log)
+  if (url.pathname === "/__tagsLocked") { tagsLocked = JSON.parse(body).locked; return json(res, 200, {}) }
   return json(res, 404, {})
 }
 

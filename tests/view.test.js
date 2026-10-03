@@ -126,3 +126,9 @@ test("statusLabel turns service states into short header text", () => {
   assert.equal(M.statusLabel("unauthorized", null), "Token rejected")
   assert.equal(M.statusLabel("error", null), "Error")
 })
+
+test("missingTags finds names Kimai doesn't know yet, ignoring case like Kimai does", () => {
+  same(M.missingTags(["alpha", "New", "review"], ["Alpha", "review"]), ["New"])
+  same(M.missingTags([], ["a"]), [])
+  same(M.missingTags(["x", ""], []), ["x"])
+})

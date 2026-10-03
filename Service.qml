@@ -246,6 +246,32 @@ Item {
     }
   }
 
+  // Kimai's timesheet API silently drops tag names it doesn't know, so create
+  // missing tags first, then check they all exist. cb(null) on success, else
+  // an error result for the form.
+  function ensureTags(names, cb) {
+    if (!Model.tagOptions(names).length) { cb(null); return }
+    api("GET", "/tags", null, null, function(r) {
+      if (r.kind !== "ok") { cb(r); return }
+      var missing = Model.missingTags(names, r.data)
+      if (!missing.length) { cb(null); return }
+      var createNext = function() {
+        if (missing.length) {
+          // A failure here (taken name, no permission) shows up in the re-check.
+          api("POST", "/tags", null, { name: missing.shift(), visible: true }, createNext)
+          return
+        }
+        api("GET", "/tags", null, null, function(again) {
+          var still = again.kind === "ok" ? Model.missingTags(names, again.data) : Model.missingTags(names, [])
+          if (!still.length) { cb(null); return }
+          cb({ kind: "invalid", status: 0, data: null,
+               message: "Kimai did not create the tag \"" + still.join("\", \"") + "\". Your account may not be allowed to create tags." })
+        })
+      }
+      createNext()
+    })
+  }
+
   // fields: { projectId, activityId, description, tags }
   function start(fields, cb) {
     var p = Model.startPayload(fields)
@@ -253,7 +279,10 @@ Item {
       if (cb) cb({ kind: "invalid", status: 0, data: null, message: p.error })
       return
     }
-    api("POST", "/timesheets", null, p.payload, _afterMutation(cb))
+    ensureTags(fields.tags, function(err) {
+      if (err) { if (cb) cb(err); return }
+      api("POST", "/timesheets", null, p.payload, _afterMutation(cb))
+    })
   }
 
   function stop(id, cb) {
@@ -283,7 +312,10 @@ Item {
 
   // payload: the `payload` of a successful Model.validateEdit()
   function update(id, payload, cb) {
-    api("PATCH", "/timesheets/" + id, null, payload, _afterMutation(cb))
+    ensureTags(String(payload.tags || "").split(","), function(err) {
+      if (err) { if (cb) cb(err); return }
+      api("PATCH", "/timesheets/" + id, null, payload, _afterMutation(cb))
+    })
   }
 
   // Stop everything that runs, or restart the most recent entry when idle.

@@ -141,6 +141,18 @@ ShellRoot {
       },
 
       function() {
+        h.check("a new tag typed at start is kept", svc.active.length === 1 && svc.active[0].tags.join(",") === "alpha,new",
+                svc.active.length ? JSON.stringify(svc.active[0].tags) : "no active")
+        h.control("/__log", null, function(log) {
+          var tagPost = log.findIndex(function(r) { return r.method === "POST" && r.path === "/api/tags" })
+          var sheetPost = log.findIndex(function(r) { return r.method === "POST" && r.path === "/api/timesheets" })
+          h.check("missing tags are created before the timesheet", tagPost !== -1 && tagPost < sheetPost
+                  && JSON.parse(log[tagPost].body).name === "new", JSON.stringify([tagPost, sheetPost]))
+          h.next()
+        })
+      },
+
+      function() {
         h.check("timesheetsChanged fired after start", h.changed >= 1, h.changed)
         h.check("bar label names the activity", Model.barParts(svc.active, Date.now()).name === "Code review")
         h.control("/__log", null, function(log) {
@@ -178,6 +190,18 @@ ShellRoot {
       },
 
       function() {
+        h.control("/__tagsLocked", { locked: true }, function() {
+          var before = svc.active[0].description
+          svc.update(svc.active[0].id, { project: 2, activity: 3, description: "Not saved", tags: "alpha,forbidden" }, function(r) {
+            h.check("a tag Kimai refuses to create stops the save with a message", r.kind === "invalid"
+                    && r.message.indexOf('Kimai did not create the tag "forbidden"') === 0, JSON.stringify(r))
+            h.check("nothing is saved when a tag can't be created", svc.active[0].description === before, svc.active[0].description)
+            h.control("/__tagsLocked", { locked: false }, function() { h.next() })
+          })
+        })
+      },
+
+      function() {
         svc.update(5, { end: h.today + "T00:00:00", begin: h.today + "T01:00:00" }, function(r) {
           h.check("invalid edit returns Kimai's message", r.kind === "invalid" && r.message === "End date must not be earlier then start date.", JSON.stringify(r))
           h.next()
@@ -201,7 +225,7 @@ ShellRoot {
           var ids = r.data ? r.data.map(function(a) { return a.id }).join(",") : ""
           h.check("activities merges project and global activities", r.kind === "ok" && ids === "3,9", ids)
           svc.tags(function(t) {
-            h.check("tags returns names", t.kind === "ok" && t.data.join(",") === "alpha,review", JSON.stringify(t))
+            h.check("tags returns names, including ones the plugin created", t.kind === "ok" && t.data.join(",") === "alpha,review,new", JSON.stringify(t))
             h.next()
           })
         })

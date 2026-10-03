@@ -350,6 +350,15 @@ function tagOptions(names) {
   return out
 }
 
+// Names in `wanted` that Kimai doesn't have yet. Kimai treats tag names
+// case-insensitively, so "Review" matches an existing "review".
+function missingTags(wanted, existing) {
+  var have = {}
+  var list = tagOptions(existing)
+  for (var i = 0; i < list.length; i++) have[list[i].toLowerCase()] = true
+  return tagOptions(wanted).filter(function(name) { return !have[name.toLowerCase()] })
+}
+
 function mergeTags(selected, extraText) {
   var extra = String(extraText || "").split(",")
   return tagOptions((selected || []).concat(extra))
