@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unit tests, QML lint, offscreen UI tests and manifest validation.
+# Unit tests, QML lint, offscreen UI and service tests, manifest validation.
 # Run before every commit.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -19,6 +19,8 @@ if command -v qs >/dev/null && [[ -d ${OMARCHY_PATH:-/usr/share/omarchy}/shell/U
   scripts/ui-test.sh "$ui_out" | tail -1   # keeps the screenshots if it fails
   rm -rf "$ui_out"
   echo "ui tests ok"
+  scripts/service-test.sh | tail -1
+  echo "service tests ok"
 fi
 
 if command -v omarchy >/dev/null && [[ -f manifest.json ]]; then
