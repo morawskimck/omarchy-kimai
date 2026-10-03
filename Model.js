@@ -259,6 +259,14 @@ function sortActive(list) {
   return arr
 }
 
+// Kimai returns /timesheets/recent ordered by end time, which it rounds to the
+// minute; its own notion of "most recently used" is the highest id.
+function sortRecent(list) {
+  var arr = Array.isArray(list) ? list.slice() : []
+  arr.sort(function(a, b) { return Number(b.id) - Number(a.id) })
+  return arr
+}
+
 function activityName(entry) {
   if (entry && entry.activity && entry.activity.name) return String(entry.activity.name)
   if (entry && entry.project && entry.project.name) return String(entry.project.name)

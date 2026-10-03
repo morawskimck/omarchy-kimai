@@ -132,3 +132,12 @@ test("missingTags finds names Kimai doesn't know yet, ignoring case like Kimai d
   same(M.missingTags([], ["a"]), [])
   same(M.missingTags(["x", ""], []), ["x"])
 })
+
+test("sortRecent puts the most recently used entry first, like Kimai's own 'highest id' rule", () => {
+  // Kimai returns /timesheets/recent ordered by end time, which it rounds to the
+  // minute, so two entries stopped in the same minute come back in any order.
+  const list = [entry({ id: 2, end: "2026-10-03T11:33:00+0200" }), entry({ id: 9, end: "2026-10-03T12:05:00+0200" }),
+                entry({ id: 8, end: "2026-10-03T12:05:00+0200" }), entry({ id: 10, end: null })]
+  same(M.sortRecent(list).map(e => e.id), [10, 9, 8, 2])
+  same(M.sortRecent(null), [])
+})

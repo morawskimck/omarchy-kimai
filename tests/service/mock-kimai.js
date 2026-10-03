@@ -40,7 +40,8 @@ function json(res, status, data) {
 }
 
 function stop(t) {
-  t.end = stamp(Date.now())
+  // Kimai rounds the end to the minute by default.
+  t.end = stamp(Math.floor(Date.now() / 60000) * 60000)
   t.duration = 60
 }
 
@@ -67,7 +68,14 @@ function route(req, res, url, body) {
   if (m === "GET" && p === "/api/version") return json(res, 200, { version: "2.67.0", versionId: 26700 })
   if (m === "GET" && p === "/api/config/timesheet") return json(res, 200, { trackingMode: "default", activeEntriesHardLimit: 1 })
   if (m === "GET" && p === "/api/timesheets/active") return json(res, 200, sheets.filter(t => !t.end).map(expand))
-  if (m === "GET" && p === "/api/timesheets/recent") return json(res, 200, sheets.filter(t => t.end).slice().reverse().map(expand))
+  if (m === "GET" && p === "/api/timesheets/recent") {
+    // Like Kimai: the newest entry per project+activity, but returned ordered by
+    // end DESC (running entries last), so ties within a minute keep id order.
+    const newest = {}
+    sheets.forEach(t => { const k = t.project + "/" + t.activity; if (!newest[k] || newest[k].id < t.id) newest[k] = t })
+    const list = Object.values(newest).sort((a, b) => (b.end ? wall(b.end) : "") .localeCompare(a.end ? wall(a.end) : "") || a.id - b.id)
+    return json(res, 200, list.map(expand))
+  }
   if (m === "GET" && p === "/api/timesheets") return json(res, 200, sheets.slice().reverse().map(expand))
   if (m === "POST" && p === "/api/timesheets") {
     const f = JSON.parse(body || "{}")

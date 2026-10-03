@@ -230,7 +230,7 @@ Item {
   function loadRecent(cb) {
     api("GET", "/timesheets/recent", { size: 10 }, null, function(r) {
       if (r.kind === "ok") {
-        root.recent = Array.isArray(r.data) ? r.data : []
+        root.recent = Model.sortRecent(r.data)
         if (!root.active.length && root.recent.length)
           root.timezoneMismatch = Model.timezoneMismatch(root.recent[0].begin, Model.localOffsetAt(Date.now()))
       }
