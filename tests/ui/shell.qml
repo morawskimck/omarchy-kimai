@@ -233,6 +233,11 @@ ShellRoot {
     var broken = harness.barButton(barWidgetBroken)
     check("a rejected token turns the icon to the urgent colour", broken && broken.active && !broken.dimmed, broken ? "active=" + broken.active : "")
     check("tooltip explains a rejected token", broken && broken.tooltipText === "Kimai · Kimai rejected the API token", broken ? broken.tooltipText : "")
+    check("bar widget exposes the host's popup contract", typeof barWidgetIdle.open === "function" && typeof barWidgetIdle.close === "function"
+          && typeof barWidgetIdle.toggle === "function" && typeof barWidgetIdle.closeForPopoutSwitch === "function"
+          && barWidgetIdle.opened === false && barWidgetIdle.popoutSwitchClosing === false)
+    // Opening itself can't be checked here: KeyboardPanel needs a real
+    // Wayland layer-shell backend, which the offscreen platform lacks.
 
     // Timer tab, running
     check("running timer shows elapsed time", harness.textShown(runningView, "1:23"))

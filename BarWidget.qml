@@ -45,6 +45,7 @@ BarWidget {
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
+  function toggle() { if (panelLoader.item) panelLoader.item.toggle() }
   function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
 
   implicitWidth: button.implicitWidth
@@ -84,8 +85,8 @@ BarWidget {
         if (root.svc) root.svc.toggle()
       } else if (mouseButton === Qt.RightButton) {
         if (root.svc && root.svc.url) Quickshell.execDetached(["xdg-open", root.svc.url])
-      } else if (panelLoader.item) {
-        panelLoader.item.toggle()
+      } else {
+        root.toggle()
       }
     }
   }
